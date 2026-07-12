@@ -1,0 +1,959 @@
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts';
+import {
+  AlertOctagon,
+  AlertTriangle,
+  Info,
+  CheckCircle2,
+  BellOff,
+  Plus,
+  Download,
+  Search,
+  ChevronRight,
+  Mail,
+  MessageCircle,
+  Send,
+  Check,
+  Loader2,
+  Server,
+  Wifi,
+  Gauge,
+  HardDrive,
+  Eye,
+  VolumeX,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import toast from 'react-hot-toast';
+import {
+  alertHistory,
+  alertRules as initialRules,
+  alertVolumeData,
+  defaultEmailConfig,
+  defaultFeishuConfig,
+} from '@/data/alertsData';
+import type { AlertHistoryItem, AlertRule } from '@/data/alertsData';
+
+const severityConfig = {
+  critical: { color: '#EF4444', bg: 'bg-[#EF4444]/10', text: 'text-[#EF4444]', label: '紧急', icon: AlertOctagon },
+  warning: { color: '#F59E0B', bg: 'bg-[#F59E0B]/10', text: 'text-[#F59E0B]', label: '警告', icon: AlertTriangle },
+  info: { color: '#3B82F6', bg: 'bg-[#3B82F6]/10', text: 'text-[#3B82F6]', label: '信息', icon: Info },
+};
+
+const categoryConfig = {
+  storage: { icon: HardDrive, label: '存储' },
+  network: { icon: Wifi, label: '网络' },
+  performance: { icon: Gauge, label: '性能' },
+  node: { icon: Server, label: '节点' },
+};
+
+function SeverityBadge({ severity }: { severity: keyof typeof severityConfig }) {
+  const config = severityConfig[severity];
+  const Icon = config.icon;
+  return (
+    <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium', config.bg, config.text)}>
+      <Icon className="h-3 w-3" />
+      {config.label}
+    </span>
+  );
+}
+
+export default function AlertsPage() {
+  const [activeTab, setActiveTab] = useState('active');
+  const [severityFilter, setSeverityFilter] = useState<string>('全部');
+  const [categoryFilter, setCategoryFilter] = useState<string>('全部');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedAlert, setSelectedAlert] = useState<AlertHistoryItem | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [ruleModalOpen, setRuleModalOpen] = useState(false);
+  const [rules, setRules] = useState<AlertRule[]>(initialRules);
+  const [ruleStep, setRuleStep] = useState(1);
+  const [testEmailLoading, setTestEmailLoading] = useState(false);
+  const [testFeishuLoading, setTestFeishuLoading] = useState(false);
+  const [emailConfig, setEmailConfig] = useState(defaultEmailConfig);
+  const [feishuConfig, setFeishuConfig] = useState(defaultFeishuConfig);
+  const [showFeishuPreview, setShowFeishuPreview] = useState(false);
+
+  const filteredAlerts = alertHistory.filter((alert) => {
+    if (severityFilter !== '全部' && alert.severity !== severityFilter) return false;
+    if (categoryFilter !== '全部' && alert.category !== categoryFilter) return false;
+    if (searchQuery && !alert.title.includes(searchQuery) && !alert.description.includes(searchQuery)) return false;
+    return true;
+  });
+
+  const openAlertDetail = (alert: AlertHistoryItem) => {
+    setSelectedAlert(alert);
+    setDetailOpen(true);
+  };
+
+  const toggleRule = (id: string) => {
+    setRules((prev) => prev.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)));
+  };
+
+  const handleTestEmail = () => {
+    setTestEmailLoading(true);
+    setTimeout(() => {
+      setTestEmailLoading(false);
+      toast.success('测试邮件已发送，请查收邮箱');
+    }, 1500);
+  };
+
+  const handleTestFeishu = () => {
+    setTestFeishuLoading(true);
+    setTimeout(() => {
+      setTestFeishuLoading(false);
+      setShowFeishuPreview(true);
+      toast.success('飞书Webhook测试成功！消息已模拟发送');
+    }, 1500);
+  };
+
+  // Stats
+  const criticalCount = alertHistory.filter((a) => a.severity === 'critical' && a.status === 'open').length;
+  const warningCount = alertHistory.filter((a) => a.severity === 'warning' && a.status === 'open').length;
+  const infoCount = alertHistory.filter((a) => a.severity === 'info' && a.status === 'open').length;
+  const resolvedToday = alertHistory.filter((a) => a.status === 'resolved').length;
+  const silencedCount = 2;
+
+  return (
+    <div className="min-h-[100dvh] bg-slate-50 dark:bg-[#0A0F1A] p-6">
+      {/* Page Header */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] }}
+        className="mb-6"
+      >
+        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-[#64748B]">
+          <span>告警中心</span>
+          <ChevronRight className="h-4 w-4" />
+          <span className="text-slate-900 dark:text-[#F1F5F9]">告警管理</span>
+        </div>
+        <div className="mt-2 flex items-end justify-between">
+          <div>
+            <h1 className="text-4xl font-bold tracking-tight text-slate-900 dark:text-[#F1F5F9]">告警与通知</h1>
+            <p className="mt-1 text-sm text-slate-500 dark:text-[#64748B]">集群异常监控 · 告警规则 · 通知渠道配置</p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setRuleModalOpen(true)}
+              className="bg-gradient-to-r from-[#0EA5E9] to-[#6366F1] text-white hover:opacity-90"
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              新建告警规则
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setActiveTab('rules');
+                toast('已切换到告警规则页，可继续配置静默策略');
+              }}
+              className="border-[#1E293B] bg-white dark:bg-[#111827] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:text-[#F1F5F9]"
+            >
+              <BellOff className="mr-1 h-4 w-4" />
+              静默管理
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => toast.success(`已导出 ${filteredAlerts.length} 条告警记录（测试环境为模拟导出）`)}
+              className="border-[#1E293B] bg-white dark:bg-[#111827] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:text-[#F1F5F9]"
+            >
+              <Download className="mr-1 h-4 w-4" />
+              导出日志
+            </Button>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Alert Stats Bar */}
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {[
+          {
+            label: '紧急告警',
+            value: String(criticalCount),
+            sub: '需立即处理',
+            icon: AlertOctagon,
+            color: '#EF4444',
+            pulse: true,
+          },
+          {
+            label: '警告告警',
+            value: String(warningCount),
+            sub: '需关注',
+            icon: AlertTriangle,
+            color: '#F59E0B',
+            pulse: false,
+          },
+          {
+            label: '信息通知',
+            value: String(infoCount),
+            sub: '仅供参考',
+            icon: Info,
+            color: '#3B82F6',
+            pulse: false,
+          },
+          {
+            label: '今日已解决',
+            value: String(resolvedToday),
+            sub: '平均解决时间 8分钟',
+            icon: CheckCircle2,
+            color: '#10B981',
+            pulse: false,
+          },
+          {
+            label: '静默中',
+            value: String(silencedCount),
+            sub: '2条规则静默',
+            icon: BellOff,
+            color: '#64748B',
+            pulse: false,
+          },
+        ].map((stat, i) => (
+          <motion.div
+            key={stat.label}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: i * 0.08, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] }}
+            className={cn(
+              'relative rounded-xl border border-[#1E293B] bg-white dark:bg-[#111827] p-5 transition-all hover:border-[#3B82F6]/30',
+              stat.pulse && 'animate-pulse'
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ backgroundColor: `${stat.color}15` }}>
+                <stat.icon className="h-4 w-4" style={{ color: stat.color }} />
+              </div>
+              <span className="text-sm text-slate-600 dark:text-[#94A3B8]">{stat.label}</span>
+            </div>
+            <div className="mt-2 text-3xl font-bold tabular-nums" style={{ color: stat.color }}>
+              {stat.value}
+            </div>
+            <div className="mt-1 text-xs text-slate-500 dark:text-[#64748B]">{stat.sub}</div>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Tabbed Content */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.4 }}
+      >
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="mb-4 border border-[#1E293B] bg-white dark:bg-[#111827]">
+            <TabsTrigger value="active" className="data-[state=active]:bg-[#0EA5E9]/20 data-[state=active]:text-[#0EA5E9]">
+              活跃告警
+            </TabsTrigger>
+            <TabsTrigger value="history" className="data-[state=active]:bg-[#0EA5E9]/20 data-[state=active]:text-[#0EA5E9]">
+              告警历史
+            </TabsTrigger>
+            <TabsTrigger value="rules" className="data-[state=active]:bg-[#0EA5E9]/20 data-[state=active]:text-[#0EA5E9]">
+              告警规则
+            </TabsTrigger>
+            <TabsTrigger value="notifications" className="data-[state=active]:bg-[#0EA5E9]/20 data-[state=active]:text-[#0EA5E9]">
+              通知设置
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Tab 1: Active Alerts */}
+          <TabsContent value="active" className="mt-0">
+            <div className="rounded-xl border border-[#1E293B] bg-white dark:bg-[#111827] p-5">
+              {/* Filter Bar */}
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1 rounded-lg border border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] px-2 py-1">
+                  <Search className="h-3.5 w-3.5 text-slate-500 dark:text-[#64748B]" />
+                  <Input
+                    placeholder="搜索告警..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="h-7 w-48 border-0 bg-transparent text-sm text-slate-900 dark:text-[#F1F5F9] placeholder:text-slate-500 dark:text-[#64748B] focus-visible:ring-0"
+                  />
+                </div>
+                <div className="flex gap-1">
+                  {['全部', 'critical', 'warning', 'info'].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setSeverityFilter(s)}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-xs transition-colors',
+                        severityFilter === s ? 'bg-[#0EA5E9]/20 text-[#0EA5E9]' : 'text-slate-500 dark:text-[#64748B] hover:text-slate-600 dark:text-[#94A3B8]'
+                      )}
+                    >
+                      {s === '全部' ? '全部' : severityConfig[s as keyof typeof severityConfig].label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-1">
+                  {['全部', 'storage', 'network', 'performance', 'node'].map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setCategoryFilter(c)}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-xs transition-colors',
+                        categoryFilter === c ? 'bg-[#6366F1]/20 text-[#6366F1]' : 'text-slate-500 dark:text-[#64748B] hover:text-slate-600 dark:text-[#94A3B8]'
+                      )}
+                    >
+                      {c === '全部' ? '全部' : categoryConfig[c as keyof typeof categoryConfig].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Alert Cards */}
+              <div className="space-y-3">
+                {filteredAlerts.filter((a) => a.status === 'open').length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-500 dark:text-[#64748B]">
+                    <CheckCircle2 className="mb-3 h-12 w-12 text-[#10B981]" />
+                    <p>当前无活跃告警</p>
+                  </div>
+                ) : (
+                  filteredAlerts
+                    .filter((a) => a.status === 'open')
+                    .map((alert, i) => (
+                      <motion.div
+                        key={alert.id}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.3, delay: i * 0.1 }}
+                        onClick={() => openAlertDetail(alert)}
+                        className={cn(
+                          'cursor-pointer rounded-lg border-l-4 bg-slate-50 dark:bg-[#0A0F1A] p-4 transition-all hover:bg-white dark:bg-[#1A2234]',
+                          alert.severity === 'critical'
+                            ? 'border-l-[#EF4444]'
+                            : alert.severity === 'warning'
+                              ? 'border-l-[#F59E0B]'
+                              : 'border-l-[#3B82F6]'
+                        )}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-3">
+                            <div className="mt-0.5">
+                              <SeverityBadge severity={alert.severity} />
+                            </div>
+                            <div>
+                              <div className="font-medium text-slate-900 dark:text-[#F1F5F9]">{alert.title}</div>
+                              <div className="mt-0.5 text-sm text-slate-600 dark:text-[#94A3B8]">{alert.description}</div>
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <Badge variant="outline" className="border-[#1E293B] text-slate-500 dark:text-[#64748B]">
+                                  {categoryConfig[alert.category].label}
+                                </Badge>
+                                <Badge variant="outline" className="border-[#1E293B] text-slate-500 dark:text-[#64748B]">
+                                  {alert.node}
+                                </Badge>
+                                <span className="text-xs text-slate-500 dark:text-[#64748B]">{alert.triggeredAt}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 border-[#1E293B] text-xs text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:text-[#F1F5F9]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toast.success(`已确认告警: ${alert.title}`);
+                              }}
+                            >
+                              <Check className="mr-1 h-3 w-3" />
+                              确认
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 border-[#1E293B] text-xs text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:text-[#F1F5F9]"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <VolumeX className="mr-1 h-3 w-3" />
+                              静默
+                            </Button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))
+                )}
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Tab 2: Alert History */}
+          <TabsContent value="history" className="mt-0">
+            <div className="rounded-xl border border-[#1E293B] bg-white dark:bg-[#111827] p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex gap-1">
+                  {['全部', 'critical', 'warning', 'info'].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setSeverityFilter(s)}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-xs transition-colors',
+                        severityFilter === s ? 'bg-[#0EA5E9]/20 text-[#0EA5E9]' : 'text-slate-500 dark:text-[#64748B] hover:text-slate-600 dark:text-[#94A3B8]'
+                      )}
+                    >
+                      {s === '全部' ? '全部' : severityConfig[s as keyof typeof severityConfig].label}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-[#64748B]">
+                  本周告警总数: 45 · MTTR: 12分钟 · 重复告警: 3
+                </div>
+              </div>
+
+              {/* Alert Volume Chart */}
+              <div className="mb-4" style={{ height: 200 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={alertVolumeData} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
+                    <XAxis dataKey="day" stroke="#64748B" fontSize={11} tickLine={false} />
+                    <YAxis stroke="#64748B" fontSize={11} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1A2234', border: '1px solid #1E293B', borderRadius: 8, color: '#F1F5F9' }}
+                      itemStyle={{ fontSize: 12 }}
+                    />
+                    <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="critical" name="紧急" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="warning" name="警告" fill="#F59E0B" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="info" name="信息" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* History Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[#1E293B] text-left text-xs uppercase text-slate-500 dark:text-[#64748B]">
+                      <th className="px-3 py-3 font-medium">告警</th>
+                      <th className="px-3 py-3 font-medium">级别</th>
+                      <th className="px-3 py-3 font-medium">分类</th>
+                      <th className="px-3 py-3 font-medium">节点</th>
+                      <th className="px-3 py-3 font-medium">触发时间</th>
+                      <th className="px-3 py-3 font-medium">解决时间</th>
+                      <th className="px-3 py-3 font-medium">耗时</th>
+                      <th className="px-3 py-3 font-medium">处理人</th>
+                      <th className="px-3 py-3 font-medium">状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAlerts.map((alert) => (
+                      <tr
+                        key={alert.id}
+                        onClick={() => openAlertDetail(alert)}
+                        className="cursor-pointer border-b border-[#1E293B] transition-colors hover:bg-white dark:bg-[#1A2234]"
+                      >
+                        <td className="px-3 py-3">
+                          <div className="max-w-[200px] truncate font-medium text-slate-900 dark:text-[#F1F5F9]">{alert.title}</div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <SeverityBadge severity={alert.severity} />
+                        </td>
+                        <td className="px-3 py-3 text-slate-600 dark:text-[#94A3B8]">{categoryConfig[alert.category].label}</td>
+                        <td className="px-3 py-3 text-slate-600 dark:text-[#94A3B8]">{alert.node}</td>
+                        <td className="px-3 py-3 text-xs text-slate-500 dark:text-[#64748B]">{alert.triggeredAt}</td>
+                        <td className="px-3 py-3 text-xs text-slate-500 dark:text-[#64748B]">{alert.resolvedAt}</td>
+                        <td className="px-3 py-3 text-xs tabular-nums text-slate-600 dark:text-[#94A3B8]">{alert.resolutionTime}</td>
+                        <td className="px-3 py-3 text-xs text-slate-600 dark:text-[#94A3B8]">{alert.resolvedBy}</td>
+                        <td className="px-3 py-3">
+                          {alert.status === 'resolved' ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-[#10B981]/10 px-2 py-0.5 text-xs text-[#10B981]">
+                              <CheckCircle2 className="h-3 w-3" /> 已解决
+                            </span>
+                          ) : alert.status === 'acknowledged' ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-[#0EA5E9]/10 px-2 py-0.5 text-xs text-[#0EA5E9]">
+                              <Eye className="h-3 w-3" /> 已确认
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-[#EF4444]/10 px-2 py-0.5 text-xs text-[#EF4444]">
+                              <AlertOctagon className="h-3 w-3" /> 未处理
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Tab 3: Alert Rules */}
+          <TabsContent value="rules" className="mt-0">
+            <div className="rounded-xl border border-[#1E293B] bg-white dark:bg-[#111827] p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-[#F1F5F9]">告警规则</h3>
+                <Button
+                  onClick={() => setRuleModalOpen(true)}
+                  className="bg-gradient-to-r from-[#0EA5E9] to-[#6366F1] text-white hover:opacity-90"
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  新建规则
+                </Button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[#1E293B] text-left text-xs uppercase text-slate-500 dark:text-[#64748B]">
+                      <th className="px-3 py-3 font-medium">规则名称</th>
+                      <th className="px-3 py-3 font-medium">监控指标</th>
+                      <th className="px-3 py-3 font-medium">条件</th>
+                      <th className="px-3 py-3 font-medium">阈值</th>
+                      <th className="px-3 py-3 font-medium">级别</th>
+                      <th className="px-3 py-3 font-medium">通知渠道</th>
+                      <th className="px-3 py-3 font-medium">状态</th>
+                      <th className="px-3 py-3 font-medium">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rules.map((rule) => (
+                      <tr key={rule.id} className="border-b border-[#1E293B] transition-colors hover:bg-white dark:bg-[#1A2234]">
+                        <td className="px-3 py-3 font-medium text-slate-900 dark:text-[#F1F5F9]">{rule.name}</td>
+                        <td className="px-3 py-3 text-slate-600 dark:text-[#94A3B8]">{rule.metric}</td>
+                        <td className="px-3 py-3 text-slate-600 dark:text-[#94A3B8]">{rule.condition}</td>
+                        <td className="px-3 py-3 font-medium tabular-nums text-slate-900 dark:text-[#F1F5F9]">{rule.threshold}</td>
+                        <td className="px-3 py-3">
+                          <SeverityBadge severity={rule.severity} />
+                        </td>
+                        <td className="px-3 py-3 text-slate-600 dark:text-[#94A3B8]">{rule.channels.join(', ')}</td>
+                        <td className="px-3 py-3">
+                          <Switch
+                            checked={rule.enabled}
+                            onCheckedChange={() => toggleRule(rule.id)}
+                          />
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:text-[#F1F5F9]"
+                              onClick={() => toast('编辑功能开发中')}
+                            >
+                              编辑
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs text-[#EF4444] hover:text-[#EF4444]"
+                              onClick={() => toast('删除功能开发中')}
+                            >
+                              删除
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Tab 4: Notification Settings */}
+          <TabsContent value="notifications" className="mt-0">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {/* Email Configuration */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+                className="rounded-xl border border-[#1E293B] bg-white dark:bg-[#111827] p-5"
+              >
+                <div className="mb-4 flex items-center gap-2">
+                  <Mail className="h-5 w-5 text-[#0EA5E9]" />
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-[#F1F5F9]">邮件通知</h3>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">SMTP服务器</label>
+                    <Input
+                      value={emailConfig.smtpServer}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, smtpServer: e.target.value })}
+                      className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">端口</label>
+                      <Input
+                        value={emailConfig.port}
+                        onChange={(e) => setEmailConfig({ ...emailConfig, port: e.target.value })}
+                        className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">发件人地址</label>
+                      <Input
+                        value={emailConfig.sender}
+                        onChange={(e) => setEmailConfig({ ...emailConfig, sender: e.target.value })}
+                        className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">用户名</label>
+                    <Input
+                      value={emailConfig.username}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, username: e.target.value })}
+                      className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">密码</label>
+                    <Input
+                      type="password"
+                      value={emailConfig.password}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, password: e.target.value })}
+                      className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]"
+                      placeholder="输入SMTP密码"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={emailConfig.tls}
+                      onCheckedChange={(v) => setEmailConfig({ ...emailConfig, tls: v })}
+                    />
+                    <span className="text-sm text-slate-600 dark:text-[#94A3B8]">启用 TLS</span>
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      className="border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:text-[#F1F5F9]"
+                      onClick={handleTestEmail}
+                      disabled={testEmailLoading}
+                    >
+                      {testEmailLoading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+                      发送测试邮件
+                    </Button>
+                    <Button className="bg-gradient-to-r from-[#0EA5E9] to-[#6366F1] text-white hover:opacity-90">
+                      保存
+                    </Button>
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Feishu Webhook Configuration */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.1 }}
+                className="rounded-xl border border-[#1E293B] bg-white dark:bg-[#111827] p-5"
+              >
+                <div className="mb-4 flex items-center gap-2">
+                  <MessageCircle className="h-5 w-5 text-[#6366F1]" />
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-[#F1F5F9]">飞书Webhook机器人</h3>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">Webhook URL</label>
+                    <Input
+                      value={feishuConfig.webhookUrl}
+                      onChange={(e) => setFeishuConfig({ ...feishuConfig, webhookUrl: e.target.value })}
+                      className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]"
+                      placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">密钥 (可选)</label>
+                    <Input
+                      type="password"
+                      value={feishuConfig.secret}
+                      onChange={(e) => setFeishuConfig({ ...feishuConfig, secret: e.target.value })}
+                      className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]"
+                      placeholder="签名密钥"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">@指定用户 (可选)</label>
+                    <Input
+                      value={feishuConfig.atUsers}
+                      onChange={(e) => setFeishuConfig({ ...feishuConfig, atUsers: e.target.value })}
+                      className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]"
+                      placeholder="@admin @ops-team"
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      className="border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:text-[#F1F5F9]"
+                      onClick={handleTestFeishu}
+                      disabled={testFeishuLoading}
+                    >
+                      {testFeishuLoading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+                      发送测试消息
+                    </Button>
+                    <Button className="bg-gradient-to-r from-[#0EA5E9] to-[#6366F1] text-white hover:opacity-90">
+                      保存
+                    </Button>
+                  </div>
+
+                  {/* Feishu Preview Card */}
+                  <AnimatePresence>
+                    {showFeishuPreview && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="mt-3 overflow-hidden rounded-lg border border-[#1E293B] bg-slate-50 dark:bg-[#0A0F1A] p-3"
+                      >
+                        <div className="mb-2 text-xs text-slate-500 dark:text-[#64748B]">飞书消息预览</div>
+                        <div className="rounded-lg bg-white dark:bg-[#111827] p-3">
+                          <div className="flex items-start gap-2">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EF4444]/10">
+                              <AlertOctagon className="h-4 w-4 text-[#EF4444]" />
+                            </div>
+                            <div>
+                              <div className="text-sm font-medium text-slate-900 dark:text-[#F1F5F9]">🔔 LustreOps 告警通知</div>
+                              <div className="mt-1 text-xs text-[#EF4444]">【紧急】Client-23 连接中断</div>
+                              <div className="mt-1 text-xs text-slate-600 dark:text-[#94A3B8]">客户端节点 Client-23 与 MGS 连接中断超过5分钟</div>
+                              <div className="mt-2 grid grid-cols-2 gap-1 text-xs text-slate-500 dark:text-[#64748B]">
+                                <span>节点: Client-23</span>
+                                <span>时间: 14:15:42</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </motion.div>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </motion.div>
+
+      {/* Alert Detail Modal */}
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-w-2xl border-[#1E293B] bg-white dark:bg-[#111827] text-slate-900 dark:text-[#F1F5F9]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-[#F1F5F9]">
+              {selectedAlert && <SeverityBadge severity={selectedAlert.severity} />}
+              {selectedAlert?.title}
+            </DialogTitle>
+            <DialogDescription className="text-slate-600 dark:text-[#94A3B8]">{selectedAlert?.description}</DialogDescription>
+          </DialogHeader>
+          {selectedAlert && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg bg-slate-50 dark:bg-[#0A0F1A] p-3">
+                  <div className="text-xs text-slate-500 dark:text-[#64748B]">触发时间</div>
+                  <div className="mt-1 text-slate-900 dark:text-[#F1F5F9]">{selectedAlert.triggeredAt}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 dark:bg-[#0A0F1A] p-3">
+                  <div className="text-xs text-slate-500 dark:text-[#64748B]">节点</div>
+                  <div className="mt-1 text-slate-900 dark:text-[#F1F5F9]">{selectedAlert.node}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 dark:bg-[#0A0F1A] p-3">
+                  <div className="text-xs text-slate-500 dark:text-[#64748B]">分类</div>
+                  <div className="mt-1 text-slate-900 dark:text-[#F1F5F9]">{categoryConfig[selectedAlert.category].label}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 dark:bg-[#0A0F1A] p-3">
+                  <div className="text-xs text-slate-500 dark:text-[#64748B]">状态</div>
+                  <div className="mt-1">
+                    {selectedAlert.status === 'resolved' ? (
+                      <span className="text-[#10B981]">已解决</span>
+                    ) : selectedAlert.status === 'acknowledged' ? (
+                      <span className="text-[#0EA5E9]">已确认</span>
+                    ) : (
+                      <span className="text-[#EF4444]">未处理</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Timeline */}
+              <div className="relative pl-4">
+                <div className="absolute left-1.5 top-0 bottom-0 w-px bg-white dark:bg-[#1E293B]" />
+                <div className="space-y-3">
+                  <div className="relative flex items-start gap-3">
+                    <div className="absolute -left-[9px] mt-1 h-2 w-2 rounded-full bg-[#EF4444]" />
+                    <div>
+                      <div className="text-sm font-medium text-slate-900 dark:text-[#F1F5F9]">告警触发</div>
+                      <div className="text-xs text-slate-500 dark:text-[#64748B]">{selectedAlert.triggeredAt}</div>
+                    </div>
+                  </div>
+                  {selectedAlert.status === 'resolved' && (
+                    <div className="relative flex items-start gap-3">
+                      <div className="absolute -left-[9px] mt-1 h-2 w-2 rounded-full bg-[#10B981]" />
+                      <div>
+                        <div className="text-sm font-medium text-slate-900 dark:text-[#F1F5F9]">已解决</div>
+                        <div className="text-xs text-slate-500 dark:text-[#64748B]">{selectedAlert.resolvedAt} · 耗时 {selectedAlert.resolutionTime}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="flex gap-2">
+            {selectedAlert?.status === 'open' && (
+              <Button
+                className="bg-gradient-to-r from-[#0EA5E9] to-[#6366F1] text-white hover:opacity-90"
+                onClick={() => {
+                  toast.success('告警已确认');
+                  setDetailOpen(false);
+                }}
+              >
+                <Check className="mr-1 h-4 w-4" />
+                确认告警
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              className="border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:text-[#F1F5F9]"
+              onClick={() => {
+                toast.success('已设置静默 1小时');
+                setDetailOpen(false);
+              }}
+            >
+              <VolumeX className="mr-1 h-4 w-4" />
+              静默1小时
+            </Button>
+            <Button
+              variant="outline"
+              className="border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:text-[#F1F5F9]"
+              onClick={() => setDetailOpen(false)}
+            >
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Rule Modal */}
+      <Dialog open={ruleModalOpen} onOpenChange={setRuleModalOpen}>
+        <DialogContent className="max-w-lg border-[#1E293B] bg-white dark:bg-[#111827] text-slate-900 dark:text-[#F1F5F9]">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-[#F1F5F9]">新建告警规则</DialogTitle>
+            <DialogDescription className="text-slate-600 dark:text-[#94A3B8]">步骤 {ruleStep} / 3</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {ruleStep === 1 && (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">规则名称</label>
+                  <Input className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]" placeholder="例如: OST容量告警" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">描述</label>
+                  <Input className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]" placeholder="规则描述..." />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">严重级别</label>
+                  <div className="flex gap-2">
+                    {(['critical', 'warning', 'info'] as const).map((s) => (
+                      <button
+                        key={s}
+                        className={cn(
+                          'rounded-md px-3 py-1.5 text-xs transition-colors',
+                          'bg-slate-50 dark:bg-[#0D1320] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:text-[#F1F5F9]'
+                        )}
+                      >
+                        {severityConfig[s].label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+            {ruleStep === 2 && (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">监控指标</label>
+                  <Input className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]" placeholder="ost.used_percent" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">运算符</label>
+                    <Input className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]" value=">" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">阈值</label>
+                    <Input className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]" placeholder="85" />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">评估间隔</label>
+                  <Input className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]" value="每1分钟" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">持续时间</label>
+                  <Input className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]" value="持续5分钟" />
+                </div>
+              </>
+            )}
+            {ruleStep === 3 && (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">通知渠道</label>
+                  <div className="flex gap-3">
+                    <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-[#94A3B8]">
+                      <input type="checkbox" className="rounded border-[#1E293B]" defaultChecked />
+                      邮件
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-[#94A3B8]">
+                      <input type="checkbox" className="rounded border-[#1E293B]" defaultChecked />
+                      飞书
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">告警冷却</label>
+                  <Input className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]" value="15分钟" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-600 dark:text-[#94A3B8]">升级设置</label>
+                  <Input className="border-[#1E293B] bg-slate-50 dark:bg-[#0D1320] text-slate-900 dark:text-[#F1F5F9]" placeholder="30分钟未确认升级通知给..." />
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter className="flex gap-2">
+            {ruleStep > 1 && (
+              <Button
+                variant="outline"
+                className="border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:text-[#F1F5F9]"
+                onClick={() => setRuleStep(ruleStep - 1)}
+              >
+                上一步
+              </Button>
+            )}
+            {ruleStep < 3 ? (
+              <Button
+                className="bg-gradient-to-r from-[#0EA5E9] to-[#6366F1] text-white hover:opacity-90"
+                onClick={() => setRuleStep(ruleStep + 1)}
+              >
+                下一步
+              </Button>
+            ) : (
+              <Button
+                className="bg-gradient-to-r from-[#0EA5E9] to-[#6366F1] text-white hover:opacity-90"
+                onClick={() => {
+                  toast.success('告警规则已创建');
+                  setRuleModalOpen(false);
+                  setRuleStep(1);
+                }}
+              >
+                保存并启用
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

@@ -1,0 +1,52 @@
+# macOS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# JavaScript build artifacts
+**/node_modules/
+**/dist/
+**/coverage/
+*.tsbuildinfo
+
+# Python runtime artifacts
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Runtime data and local configuration
+.env
+.env.*
+!.env.example
+*.log
+*.pid
+*.sqlite
+*.sqlite3
+*.db
+
+# Browser automation output
+.playwright-cli/
+**/.playwright-cli/
+playwright-report/
+test-results/
+
+# Local backups and superseded source copies
+*.bak
+*.bak[0-9]*
+*.orig
+app/src/misplaced_backup/
+
+# Product audit output is local evidence; keep only the curated README image.
+app/product-audit/*
+!app/product-audit/cloud-console-dashboard-final.png
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Initial scaffold notes superseded by README and versioned design documents
+plan.md
+app/info.md

@@ -1,0 +1,15 @@
+[Unit]
+Description=Lustre OPS Flask API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/Lustre_OPS/app/api
+ExecStart=/usr/bin/python3 /opt/Lustre_OPS/app/api/lustre_api.py
+Restart=always
+RestartSec=3
+User=root
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

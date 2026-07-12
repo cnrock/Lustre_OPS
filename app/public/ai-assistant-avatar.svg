@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AI 助手头像">
+  <rect width="64" height="64" rx="18" fill="#2563eb"/>
+  <path d="M18 24c0-4.4 3.6-8 8-8h12c4.4 0 8 3.6 8 8v14c0 4.4-3.6 8-8 8H26c-4.4 0-8-3.6-8-8V24Z" fill="#eff6ff"/>
+  <path d="M24 28h4v4h-4v-4Zm12 0h4v4h-4v-4ZM25 38h14v3H25v-3Z" fill="#2563eb"/>
+  <path d="M32 10v6M32 46v8M10 32h8M46 32h8" stroke="#bfdbfe" stroke-width="4" stroke-linecap="round"/>
+</svg>

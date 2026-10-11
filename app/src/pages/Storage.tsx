@@ -276,7 +276,7 @@ export default function Storage() {
       <div className="rounded-xl border border-[#1E293B] bg-white p-5 dark:bg-[#111827]">
         <div className="mb-4">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-[#F1F5F9]">真实 Inode 使用情况</h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-[#64748B]">来自 `lfs df -i /lustre/client` 的实时结果</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-[#64748B]">来自 `lfs df -i /lustre` 的实时结果</p>
         </div>
         <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
           {inodes.length > 0 ? inodes.map((inode: any) => (

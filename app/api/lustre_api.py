@@ -20,16 +20,111 @@ import shutil
 from urllib import request as urllib_request
 from urllib import error as urllib_error
 from datetime import datetime, timedelta
-from flask import Flask, Response, jsonify, request, stream_with_context
+from flask import Flask, Response, jsonify, request, stream_with_context, g
 from flask_cors import CORS
 
-app = Flask(__name__)
-CORS(app)
+import auth as auth_mod
 
-DB_PATH = '/opt/lustre-data/lustre.db'
-LUSTRE_CLIENT = '/lustre/client'
+app = Flask(__name__)
+CORS(app, supports_credentials=True)
+
+# 鉴权与用户管理表初始化（空库时自动建默认管理员）
+auth_mod.init_auth_db()
+
+
+def ensure_metrics_tables():
+    """创建巡检/指标所需的表（上游默认不建，导致 "no such table" 与无巡检历史）。
+
+    字段与 lustre_api.py 中的查询保持一致；采集器（如有）可向其写数据。
+    """
+    try:
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ost_metrics (
+                timestamp TEXT NOT NULL, name TEXT, uuid TEXT, type TEXT,
+                total_bytes INTEGER, used_bytes INTEGER, available_bytes INTEGER,
+                usage_percent REAL, mount TEXT, fs_name TEXT
+            )""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_ost_metrics_ts ON ost_metrics(timestamp)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS perf_rates (
+                timestamp TEXT NOT NULL, ost_name TEXT, read_mbps REAL, write_mbps REAL,
+                read_iops REAL, write_iops REAL
+            )""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_perf_rates_ts ON perf_rates(timestamp, ost_name)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS node_metrics (
+                timestamp TEXT NOT NULL, node_id TEXT, nid TEXT, status TEXT, role TEXT
+            )""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_node_metrics_ts ON node_metrics(timestamp)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, level TEXT,
+                title TEXT, message TEXT, source TEXT,
+                resolved INTEGER NOT NULL DEFAULT 0, resolved_at TEXT
+            )""")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS health_checks (
+                timestamp TEXT NOT NULL, healthy INTEGER, servers_output TEXT,
+                mounted INTEGER, score INTEGER, client_mount TEXT
+            )""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_health_checks_ts ON health_checks(timestamp)")
+        # 完整巡检快照（含 findings/steps/日志），供「巡检历史」查看
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS health_check_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                score INTEGER,
+                checks_passed INTEGER,
+                checks_failed INTEGER,
+                checks_warned INTEGER,
+                finding_count INTEGER,
+                client_mount TEXT,
+                payload_json TEXT
+            )""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_hcr_ts ON health_check_runs(timestamp)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS sys_stats (
+                timestamp TEXT NOT NULL, load1 REAL, load5 REAL, load15 REAL,
+                cpu_percent REAL, mem_percent REAL
+            )""")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'[SCHEMA ERROR] {e}')
+
+
+@app.before_request
+def _enforce_auth():
+    """全局登录守卫：除白名单外，所有 /api/* 均需有效会话。"""
+    path = request.path or ''
+    if request.method == 'OPTIONS':
+        return None
+    if not path.startswith('/api/'):
+        return None
+    if auth_mod.is_public_path(path):
+        return None
+    user = auth_mod.user_for_token(auth_mod.token_from_request())
+    if not user:
+        return jsonify({'error': '未登录或登录已过期'}), 401
+    g.current_user = user
+    return None
+
+
+def require_role(min_role):
+    return auth_mod.require_auth(min_role)
+
+DB_PATH = os.environ.get('LUSTRE_DB', '/opt/lustre-data/lustre.db')
+# 客户端挂载点可通过环境变量 LUSTRE_CLIENT_MOUNT 配置（默认 /lustre/client）。
+# 部署时按实际挂载点设置，例如本环境为 /lustre。
+LUSTRE_CLIENT = os.environ.get('LUSTRE_CLIENT_MOUNT', '/lustre/client')
 AI_SETTINGS_PATH = '/opt/lustre-data/ai_model_settings.json'
 LOG_STATE_PATH = '/opt/lustre-data/log_analysis_state.json'
+
+# 巡检/指标所需表（必须在 DB_PATH 定义之后调用）
+ensure_metrics_tables()
 AGENT_ID = 'lustre-log-analyzer'
 AGENT_MEMORY_DIR = f'/opt/lustre-data/agent-memory/{AGENT_ID}'
 AGENT_SESSIONS_DIR = os.path.join(AGENT_MEMORY_DIR, 'sessions')
@@ -1456,19 +1551,19 @@ REMEDIATION_ACTIONS = {
         'summary': '该问题可能涉及 MGS/MDS/OSS 服务、客户端挂载或底层网络。系统会先执行只读检查，真正重启或挂载需管理员确认后手动执行。',
         'safeCommands': [
             {'label': '检查 Lustre 服务状态', 'command': 'lfs check servers', 'timeout': 20},
-            {'label': '检查客户端挂载点', 'command': 'mountpoint /lustre/client && findmnt /lustre/client || true', 'timeout': 10},
+            {'label': '检查客户端挂载点', 'command': f'mountpoint {LUSTRE_CLIENT} && findmnt {LUSTRE_CLIENT} || true', 'timeout': 10},
             {'label': '检查内核 Lustre 日志', 'command': "journalctl --no-pager -k -n 120 | egrep -i 'lustre|lnet|mgs|mds|oss|ost' | tail -60 || true", 'timeout': 15},
         ],
         'manualSteps': [
             '确认 MGS、MDS、OSS 节点是否在线，优先检查管理节点和元数据服务。',
             '在受影响节点执行 `lfs check servers`，确认失败组件名称和返回错误。',
-            '检查 `/lustre/client` 是否已挂载；未挂载时先确认网络、MGS NID 和挂载参数。',
+            f'检查 `{LUSTRE_CLIENT}` 是否已挂载；未挂载时先确认网络、MGS NID 和挂载参数。',
             '如确认为单个服务异常，按变更窗口执行服务重启或挂载恢复，不要直接批量重启全部节点。',
             '恢复后重新执行巡检，并观察 10-15 分钟告警是否继续出现。',
         ],
         'validationSteps': [
             '`lfs check servers` 返回正常。',
-            '`mountpoint /lustre/client` 返回成功。',
+            f'`mountpoint {LUSTRE_CLIENT}` 返回成功。',
             '巡检页集群状态由失败恢复为通过或警告。',
         ],
     },
@@ -1545,8 +1640,8 @@ REMEDIATION_ACTIONS = {
         'canAutoFix': False,
         'summary': '容量修复可能涉及删除、迁移或扩容，系统只做容量画像和热点确认，不自动删除数据。',
         'safeCommands': [
-            {'label': '查看 Lustre 容量', 'command': 'lfs df -h /lustre/client 2>/dev/null || lfs df -h 2>/dev/null || true', 'timeout': 15},
-            {'label': '查看 inode 使用', 'command': 'lfs df -i /lustre/client 2>/dev/null || true', 'timeout': 15},
+            {'label': '查看 Lustre 容量', 'command': f'lfs df -h {LUSTRE_CLIENT} 2>/dev/null || lfs df -h 2>/dev/null || true', 'timeout': 15},
+            {'label': '查看 inode 使用', 'command': f'lfs df -i {LUSTRE_CLIENT} 2>/dev/null || true', 'timeout': 15},
         ],
         'manualSteps': [
             '确认高水位 OST 名称和业务影响范围。',
@@ -1789,7 +1884,7 @@ def build_health_check_payload(run_live=True, event_logger=None):
             event_logger,
             'config',
             'fstab Lustre 配置检查',
-            "grep -nE 'lustre|/lustre/client|mgt_pool|mdt_pool|ost[0-9]_pool' /etc/fstab 2>/dev/null || true",
+            f"grep -nE 'lustre|{LUSTRE_CLIENT}|mgt_pool|mdt_pool|ost[0-9]_pool' /etc/fstab 2>/dev/null || true",
             timeout=10,
             require_output=True,
         )
@@ -2008,7 +2103,7 @@ def build_health_check_payload(run_live=True, event_logger=None):
     perf_score = 95 if total_bw > 100 else 88 if total_bw > 0 else 72
 
     storage_checks = 6
-    storage_warning = int(max_ost and (max_ost.get('usage_percent') or 0) >= 80) + int(probe_bad('osts')) + int(probe_bad('stripe')) + int(probe_bad('target_mounts'))
+    storage_warning = int(bool(max_ost and (max_ost.get('usage_percent') or 0) >= 80)) + int(probe_bad('osts')) + int(probe_bad('stripe')) + int(probe_bad('target_mounts'))
     storage_failed = 1 if max_ost and (max_ost.get('usage_percent') or 0) >= 90 else 0
     storage_failed = min(storage_failed, storage_checks)
     storage_warning = min(storage_warning, max(0, storage_checks - storage_failed))
@@ -2099,7 +2194,7 @@ def build_health_check_payload(run_live=True, event_logger=None):
 
     duration_sec = max(1, int((datetime.now() - started).total_seconds()))
     emit_health_event(event_logger, 'done', f'巡检任务完成，耗时 {duration_sec} 秒', phase='summary')
-    return {
+    payload = {
         'timestamp': timestamp,
         'duration_sec': duration_sec,
         'cluster': 'lustre-cluster-01',
@@ -2126,6 +2221,26 @@ def build_health_check_payload(run_live=True, event_logger=None):
             'nids': nids_output.splitlines(),
         }
     }
+
+    # 保存完整快照，供「巡检历史」查看（仅实时巡检时）
+    if run_live:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO health_check_runs
+                   (timestamp, score, checks_passed, checks_failed, checks_warned,
+                    finding_count, client_mount, payload_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (timestamp, overall_score, checks_passed, checks_failed, checks_warned,
+                 len(findings), LUSTRE_CLIENT, json.dumps(payload, ensure_ascii=False)),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f'[HEALTH SNAPSHOT ERROR] {e}')
+
+    return payload
 
 
 @app.route('/')
@@ -2154,6 +2269,71 @@ def index():
             {'path': '/api/alerts/history?limit=100', 'desc': '历史告警'},
         ]
     })
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    body = request.get_json(silent=True) or {}
+    identifier = body.get('username') or body.get('email') or body.get('identifier')
+    token, user, err = auth_mod.login(identifier, body.get('password'))
+    if err:
+        return jsonify({'ok': False, 'error': err}), 401
+    resp = jsonify({'ok': True, 'token': token, 'user': user})
+    resp.set_cookie('lustre_token', token, httponly=True, samesite='Lax', max_age=auth_mod.SESSION_TTL)
+    return resp
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def auth_logout():
+    auth_mod.logout(auth_mod.token_from_request())
+    resp = jsonify({'ok': True})
+    resp.delete_cookie('lustre_token')
+    return resp
+
+
+@app.route('/api/auth/me')
+def auth_me():
+    return jsonify({'ok': True, 'user': g.current_user})
+
+
+@app.route('/api/users', methods=['GET'])
+def users_list():
+    return jsonify({'ok': True, 'users': auth_mod.list_users()})
+
+
+@app.route('/api/users', methods=['POST'])
+@require_role('admin')
+def users_create():
+    body = request.get_json(silent=True) or {}
+    user, err = auth_mod.create_user(
+        body.get('username') or body.get('name'),
+        body.get('email'),
+        body.get('password'),
+        body.get('role') or 'readonly',
+        body.get('status') or 'active',
+    )
+    if err:
+        return jsonify({'ok': False, 'error': err}), 400
+    return jsonify({'ok': True, 'user': user})
+
+
+@app.route('/api/users/<int:user_id>', methods=['PATCH', 'PUT'])
+@require_role('admin')
+def users_update(user_id):
+    body = request.get_json(silent=True) or {}
+    user, err = auth_mod.update_user(user_id, body)
+    if err:
+        return jsonify({'ok': False, 'error': err}), 400
+    return jsonify({'ok': True, 'user': user})
+
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@require_role('admin')
+def users_delete(user_id):
+    ok, err = auth_mod.delete_user(user_id)
+    if not ok:
+        return jsonify({'ok': False, 'error': err}), 400
+    return jsonify({'ok': True})
 
 
 @app.route('/api/health')
@@ -2705,7 +2885,7 @@ def lustre_performance():
 @app.route('/api/lustre/client-info')
 def lustre_client_info():
     mount_info, _, _ = run_cmd('mount | grep lustre')
-    df_info, _, _ = run_cmd('df -h /lustre/client')
+    df_info, _, _ = run_cmd(f'df -h {LUSTRE_CLIENT}')
     return jsonify({'mount_info': mount_info, 'df_client': df_info})
 
 
@@ -2774,6 +2954,48 @@ def health_history():
 @app.route('/api/health-check/latest')
 def health_check_latest():
     return jsonify(build_health_check_payload(run_live=False))
+
+
+@app.route('/api/health-check/history')
+def health_check_history():
+    """巡检历史列表（不含完整 payload，用于列表展示）。"""
+    limit = request.args.get('limit', 50, type=int)
+    limit = max(1, min(limit, 200))
+    rows = db_query("""
+        SELECT id, timestamp, score, checks_passed, checks_failed, checks_warned,
+               finding_count, client_mount
+        FROM health_check_runs
+        ORDER BY id DESC
+        LIMIT ?
+    """, (limit,))
+    return jsonify({'count': len(rows), 'runs': rows})
+
+
+@app.route('/api/health-check/history/<int:run_id>')
+def health_check_history_detail(run_id):
+    """某次巡检的完整快照。"""
+    rows = db_query('SELECT * FROM health_check_runs WHERE id = ?', (run_id,))
+    if not rows:
+        return jsonify({'error': '巡检记录不存在'}), 404
+    row = rows[0]
+    try:
+        payload = json.loads(row.get('payload_json') or '{}')
+    except Exception:
+        payload = {}
+    return jsonify({'id': row['id'], 'timestamp': row['timestamp'], 'payload': payload})
+
+
+@app.route('/api/health-check/history/<int:run_id>', methods=['DELETE'])
+def health_check_history_delete(run_id):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute('DELETE FROM health_check_runs WHERE id = ?', (run_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/health-check/run', methods=['POST'])
@@ -2955,7 +3177,7 @@ def storage_forecast():
 
 @app.route('/api/metrics/storage/inodes')
 def storage_inodes():
-    stdout, stderr, rc = run_cmd('lfs df -i /lustre/client')
+    stdout, stderr, rc = run_cmd(f'lfs df -i {LUSTRE_CLIENT}')
     lines = stdout.splitlines() if stdout else []
     items = []
     for line in lines[1:]:
@@ -3088,11 +3310,11 @@ def build_alert_actions(alert):
                 'mode': 'diagnostic',
                 'risk': 'low',
                 'buttonLabel': '立即执行',
-                'commandPreview': 'mount | grep -i lustre || lfs df -h /lustre/client',
+                'commandPreview': f'mount | grep -i lustre || lfs df -h {LUSTRE_CLIENT}',
                 'commands': [
                     {'label': '检查 mount 挂载表', 'command': "mount | grep -i lustre || true", 'timeout': 10},
-                    {'label': '检查 /lustre/client 是否为挂载点', 'command': "mountpoint /lustre/client && findmnt /lustre/client || true", 'timeout': 10},
-                    {'label': '尝试读取 Lustre 容量', 'command': "lfs df -h /lustre/client 2>&1 || true", 'timeout': 15},
+                    {'label': f'检查 {LUSTRE_CLIENT} 是否为挂载点', 'commandf': "mountpoint {LUSTRE_CLIENT} && findmnt {LUSTRE_CLIENT} || true", 'timeout': 10},
+                    {'label': '尝试读取 Lustre 容量', 'commandf': "lfs df -h {LUSTRE_CLIENT} 2>&1 || true", 'timeout': 15},
                 ],
                 'nextStep': '如果没有任何 Lustre 挂载记录，请继续执行 LNet/MGS 检查和 fstab 检查。',
             },
@@ -3115,14 +3337,14 @@ def build_alert_actions(alert):
             {
                 'id': 'check-fstab-mount-config',
                 'title': '检查挂载配置',
-                'description': '查看 /etc/fstab 和常见挂载脚本中是否存在 /lustre/client 配置。',
+                'description': f'查看 /etc/fstab 和常见挂载脚本中是否存在 {LUSTRE_CLIENT} 配置。',
                 'targetNode': target,
                 'mode': 'diagnostic',
                 'risk': 'low',
                 'buttonLabel': '立即执行',
-                'commandPreview': "grep -nE 'lustre|/lustre/client' /etc/fstab",
+                'commandPreview': f"grep -nE 'lustre|{LUSTRE_CLIENT}' /etc/fstab",
                 'commands': [
-                    {'label': '查看 fstab 中的 Lustre 配置', 'command': "grep -nE 'lustre|/lustre/client' /etc/fstab 2>&1 || true", 'timeout': 10},
+                    {'label': '查看 fstab 中的 Lustre 配置', 'command': f"grep -nE 'lustre|{LUSTRE_CLIENT}' /etc/fstab 2>&1 || true", 'timeout': 10},
                     {'label': '查看常见挂载脚本', 'command': "find /etc /opt -maxdepth 3 -type f \\( -iname '*lustre*' -o -iname '*mount*' \\) 2>/dev/null | head -40 || true", 'timeout': 10},
                 ],
                 'nextStep': '如果没有挂载配置，系统不会自动挂载；请先补齐 MGS NID、文件系统名和挂载路径。',
@@ -3130,16 +3352,16 @@ def build_alert_actions(alert):
             {
                 'id': 'try-client-mount',
                 'title': '受控尝试重新挂载客户端',
-                'description': '仅当 /etc/fstab 已存在 /lustre/client 挂载项时执行 mount /lustre/client，并立即校验结果。',
+                'description': f'仅当 /etc/fstab 已存在 {LUSTRE_CLIENT} 挂载项时执行 mount {LUSTRE_CLIENT}，并立即校验结果。',
                 'targetNode': target,
                 'mode': 'repair',
                 'risk': 'medium',
                 'buttonLabel': '立即执行',
-                'commandPreview': 'mount /lustre/client && mountpoint /lustre/client',
+                'commandPreview': f'mount {LUSTRE_CLIENT} && mountpoint {LUSTRE_CLIENT}',
                 'commands': [
                     {
-                        'label': '受控挂载 /lustre/client',
-                        'command': "if mountpoint -q /lustre/client; then echo '/lustre/client 已经挂载'; exit 0; fi; if grep -Eq '[[:space:]]/lustre/client[[:space:]]' /etc/fstab; then mount /lustre/client && mountpoint /lustre/client && lfs df -h /lustre/client 2>/dev/null || true; else echo '未在 /etc/fstab 找到 /lustre/client 挂载项，未执行 mount'; exit 2; fi",
+                        'label': f'受控挂载 {LUSTRE_CLIENT}',
+                        'command': f"if mountpoint -q {LUSTRE_CLIENT}; then echo '{LUSTRE_CLIENT} 已经挂载'; exit 0; fi; if grep -Eq '[[:space:]]{LUSTRE_CLIENT}[[:space:]]' /etc/fstab; then mount {LUSTRE_CLIENT} && mountpoint {LUSTRE_CLIENT} && lfs df -h {LUSTRE_CLIENT} 2>/dev/null || true; else echo '未在 /etc/fstab 找到 {LUSTRE_CLIENT} 挂载项，未执行 mount'; exit 2; fi",
                         'timeout': 30,
                     },
                 ],
@@ -3230,11 +3452,11 @@ def run_alert_action(alert_id, action_id):
 def collect_alert_analysis_context(alert):
     commands = [
         {'label': '当前 Lustre 状态', 'command': 'lfs check servers 2>&1 || true', 'timeout': 20},
-        {'label': '客户端挂载状态', 'command': 'mountpoint /lustre/client 2>&1; lfs df -h /lustre/client 2>&1 || true', 'timeout': 15},
+        {'label': '客户端挂载状态', 'command': f'mountpoint {LUSTRE_CLIENT} 2>&1; lfs df -h {LUSTRE_CLIENT} 2>&1 || true', 'timeout': 15},
         {'label': 'LNet NID', 'command': 'lctl list_nids 2>&1 || true', 'timeout': 10},
         {'label': 'LNet 网络', 'command': 'lnetctl net show 2>&1 | head -120 || true', 'timeout': 10},
-        {'label': '相关挂载记录', 'command': "mount | egrep -i 'lustre|/lustre/client' || true", 'timeout': 10},
-        {'label': 'fstab 相关配置', 'command': "grep -nE 'lustre|/lustre/client|mgt_pool|mdt_pool|ost[0-9]_pool' /etc/fstab 2>&1 || true", 'timeout': 10},
+        {'label': '相关挂载记录', 'command': f"mount | egrep -i 'lustre|{LUSTRE_CLIENT}' || true", 'timeout': 10},
+        {'label': 'fstab 相关配置', 'command': f"grep -nE 'lustre|{LUSTRE_CLIENT}|mgt_pool|mdt_pool|ost[0-9]_pool' /etc/fstab 2>&1 || true", 'timeout': 10},
         {'label': '最近内核日志', 'command': "journalctl --no-pager -k -n 180 | egrep -i 'lustre|lnet|mgs|mdt|ost|error|failed|timeout|recovery' | tail -80 || true", 'timeout': 15},
     ]
     results = []
@@ -3292,7 +3514,7 @@ def compact_alert_context(context):
 
 def local_alert_analysis(alert, context, ai_error=None):
     check_text = compact_alert_context(context).lower()
-    resolved_hint = '当前检查显示 `/lustre/client` 已挂载，`lfs check servers` 可用。' if 'active.' in check_text and 'not a mountpoint' not in check_text else '当前检查仍需管理员继续确认挂载、LNet 和服务端 target 状态。'
+    resolved_hint = f'当前检查显示 `{LUSTRE_CLIENT}` 已挂载，`lfs check servers` 可用。' if 'active.' in check_text and 'not a mountpoint' not in check_text else '当前检查仍需管理员继续确认挂载、LNet 和服务端 target 状态。'
     sections = [
         '# 智能分析结果',
         '',

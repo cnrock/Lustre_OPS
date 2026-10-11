@@ -19,6 +19,8 @@ import Reports from './pages/Reports'
 import SettingsPage from './pages/Settings'
 import Dashboard from './pages/Dashboard'
 import AlertDetail from './pages/AlertDetail'
+import Login from './pages/Login'
+import { AUTH_EXPIRED_EVENT, fetchMe, logout as doLogout, getToken, type CurrentUser } from './lib/auth'
 
 const navItems = [
   { path: '/dashboard', icon: LayoutDashboard, label: '总览' },
@@ -139,7 +141,7 @@ function Sidebar({ isOpen, setIsOpen }: { isOpen: boolean; setIsOpen: (v: boolea
   )
 }
 
-function Header({ setSidebarOpen }: { setSidebarOpen: (v: boolean) => void }) {
+function Header({ setSidebarOpen, currentUser, onLogout }: { setSidebarOpen: (v: boolean) => void; currentUser?: CurrentUser | null; onLogout?: () => void }) {
   const { darkMode, setDarkMode } = useTheme()
   const location = useLocation()
   const navigate = useNavigate()
@@ -178,8 +180,13 @@ function Header({ setSidebarOpen }: { setSidebarOpen: (v: boolean) => void }) {
 
   const handleLogout = () => {
     setUserOpen(false)
-    toast.success('当前为测试环境，已退出本地会话菜单')
+    if (onLogout) onLogout()
+    else toast.success('已退出')
   }
+
+  const displayName = currentUser?.username || currentUser?.name || 'admin'
+  const displayEmail = currentUser?.email || ''
+  const avatarText = (displayName || 'U').slice(0, 2).toUpperCase()
 
   return (
     <header className={['sticky top-0 z-30 flex h-14 items-center justify-between border-b px-4',
@@ -333,8 +340,8 @@ function Header({ setSidebarOpen }: { setSidebarOpen: (v: boolean) => void }) {
             aria-label="打开用户菜单"
             className="flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
           >
-            <span className="flex h-5 w-5 items-center justify-center rounded bg-blue-600 text-[10px] text-white">OP</span>
-            <span className="hidden sm:inline">admin</span>
+            <span className="flex h-5 w-5 items-center justify-center rounded bg-blue-600 text-[10px] text-white">{avatarText}</span>
+            <span className="hidden sm:inline">{displayName}</span>
             <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
           </button>
           {userOpen && (
@@ -347,8 +354,8 @@ function Header({ setSidebarOpen }: { setSidebarOpen: (v: boolean) => void }) {
               ].join(' ')}>
                 <div className={['px-4 py-3 border-b',
                   darkMode ? 'border-slate-700/50' : 'border-slate-200'].join(' ')}>
-                  <p className="text-sm font-medium text-slate-900 dark:text-white">运维管理员</p>
-                  <p className="text-xs text-slate-500 mt-0.5">op@lustre.local</p>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{displayName}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{displayEmail}</p>
                 </div>
                 <div className="py-1">
                   <Link to="/settings" onClick={() => setUserOpen(false)} className="flex items-center gap-2.5 px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white transition-colors">
@@ -373,6 +380,32 @@ function Header({ setSidebarOpen }: { setSidebarOpen: (v: boolean) => void }) {
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [darkMode, setDarkMode] = useState(false)
+  const [authState, setAuthState] = useState<'checking' | 'in' | 'out'>('checking')
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      if (!getToken()) {
+        if (alive) setAuthState('out')
+        return
+      }
+      const me = await fetchMe()
+      if (!alive) return
+      if (me) {
+        setCurrentUser(me)
+        setAuthState('in')
+      } else {
+        setAuthState('out')
+      }
+    })()
+    const onExpired = () => setAuthState('out')
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired)
+    return () => {
+      alive = false
+      window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired)
+    }
+  }, [])
 
   useEffect(() => {
     const html = document.documentElement
@@ -385,13 +418,25 @@ export default function App() {
     }
   }, [darkMode])
 
+  if (authState === 'checking') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#07172b] text-slate-400">
+        正在校验登录状态…
+      </div>
+    )
+  }
+
+  if (authState === 'out') {
+    return <Login onSuccess={() => { setAuthState('in'); fetchMe().then(setCurrentUser) }} />
+  }
+
   return (
     <div className={`min-h-screen ${darkMode ? 'dark bg-slate-950' : 'bg-slate-50'}`}>
       <ThemeContext.Provider value={{ darkMode, setDarkMode }}>
         <Toaster position="top-center" toastOptions={{ duration: 2400 }} />
         <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} />
         <div className="lg:ml-[248px]">
-          <Header setSidebarOpen={setSidebarOpen} />
+          <Header setSidebarOpen={setSidebarOpen} currentUser={currentUser} onLogout={async () => { await doLogout(); setCurrentUser(null); setAuthState('out') }} />
           <main className="p-4 sm:p-5">
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -405,7 +450,7 @@ export default function App() {
               <Route path="/logs" element={<LogAnalysis />} />
               <Route path="/health-check" element={<HealthCheck />} />
               <Route path="/reports" element={<Reports />} />
-              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/settings" element={<SettingsPage currentUser={currentUser} />} />
             </Routes>
           </main>
         </div>

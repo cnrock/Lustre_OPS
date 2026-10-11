@@ -116,7 +116,7 @@ export const fileSystems: FileSystemConfig[] = [
   {
     id: 'fs-1',
     name: 'lustrefs',
-    mountPoint: '/lustre/client',
+    mountPoint: '/lustre',
     nodeCount: 1,
     isDefault: true,
     stripeCount: 1,
@@ -145,7 +145,7 @@ export const fileSystems: FileSystemConfig[] = [
 const now = new Date();
 
 export const configHistory: ConfigHistoryEntry[] = [
-  { id: 'h1', timestamp: format(now, 'yyyy-MM-dd HH:mm:ss', { locale: zhCN }), user: 'system', parameterName: 'filesystem_created', oldValue: '-', newValue: 'lustrefs on /lustre/client', fileSystemName: 'lustrefs' },
+  { id: 'h1', timestamp: format(now, 'yyyy-MM-dd HH:mm:ss', { locale: zhCN }), user: 'system', parameterName: 'filesystem_created', oldValue: '-', newValue: 'lustrefs on /lustre', fileSystemName: 'lustrefs' },
 ];
 
 export const parameterCategories = [

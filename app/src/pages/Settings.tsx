@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import {
@@ -43,6 +43,8 @@ import {
   type FeishuConfig,
   type DisplayPreferences,
 } from '@/data/mockSettings';
+import { listUsers, createUser, updateUser, deleteUser } from '@/lib/users';
+import type { CurrentUser } from '@/lib/auth';
 import toast from 'react-hot-toast';
 
 /* ------------------------------------------------------------------ */
@@ -380,10 +382,11 @@ function GeneralSettingsPanel({ prefs, onChange }: {
 /*  User Management Panel                                              */
 /* ------------------------------------------------------------------ */
 function UserManagementPanel() {
-  const [userList, setUserList] = useState<User[]>(users);
+  const [userList, setUserList] = useState<User[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [formError, setFormError] = useState('');
+  const [loading, setLoading] = useState(true);
 
   const [newUser, setNewUser] = useState({
     name: '',
@@ -392,6 +395,28 @@ function UserManagementPanel() {
     password: '',
     status: 'active' as User['status'],
   });
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await listUsers();
+      setUserList(list.map(u => ({
+        id: String(u.id),
+        name: u.username,
+        email: u.email,
+        role: u.role,
+        permissions: [],
+        lastLogin: u.lastLogin || '未登录',
+        status: u.status,
+      })));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '加载用户列表失败');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
 
   const roleBadge = (role: string) => {
     switch (role) {
@@ -411,7 +436,7 @@ function UserManagementPanel() {
     }
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     const name = newUser.name.trim();
     const email = newUser.email.trim();
     if (!name) {
@@ -422,42 +447,74 @@ function UserManagementPanel() {
       setFormError('请输入有效的邮箱地址');
       return;
     }
-    if (userList.some((user) => user.email.toLowerCase() === email.toLowerCase())) {
-      setFormError('该邮箱已存在，请更换邮箱');
+    if (!newUser.password || newUser.password.length < 6) {
+      setFormError('密码至少 6 位');
       return;
     }
-    const user: User = {
-      id: `u${Date.now()}`,
-      name,
-      email,
-      role: newUser.role,
-      permissions: newUser.role === 'admin' ? ['全部权限'] : newUser.role === 'engineer' ? ['监控查看', '告警管理', '日志分析', '健康检查'] : ['查看所有页面'],
-      lastLogin: '未登录',
-      status: newUser.status,
-    };
-    setUserList(prev => [...prev, user]);
-    setShowAddModal(false);
-    setFormError('');
-    setNewUser({ name: '', email: '', role: 'readonly', password: '', status: 'active' });
-    toast.success(`用户 ${user.name} 已添加`);
+    try {
+      await createUser({
+        username: name,
+        email,
+        password: newUser.password,
+        role: newUser.role,
+        status: newUser.status,
+      });
+      setShowAddModal(false);
+      setFormError('');
+      setNewUser({ name: '', email: '', role: 'readonly', password: '', status: 'active' });
+      toast.success(`用户 ${name} 已添加`);
+      refresh();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : '添加失败');
+    }
   };
 
-  const handleDelete = (id: string) => {
-    setUserList(prev => prev.filter(u => u.id !== id));
-    toast.success('用户已删除');
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteUser(Number(id));
+      toast.success('用户已删除');
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '删除失败');
+    }
   };
 
-  const handleToggleStatus = (id: string) => {
-    let nextStatus = '';
-    setUserList(prev => prev.map(u => {
-      if (u.id === id) {
-        nextStatus = u.status === 'active' ? 'inactive' : 'active';
-        return { ...u, status: nextStatus as User['status'] };
-      }
-      return u;
-    }));
-    if (nextStatus) {
+  const handleToggleStatus = async (id: string) => {
+    const target = userList.find(u => u.id === id);
+    if (!target) return;
+    const nextStatus = target.status === 'active' ? 'inactive' : 'active';
+    try {
+      await updateUser(Number(id), { status: nextStatus });
       toast.success(`用户状态已更新为 ${nextStatus === 'active' ? '启用' : '停用'}`);
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '更新失败');
+    }
+  };
+
+  const handleResetPassword = async (id: string, name: string) => {
+    const pw = window.prompt(`为「${name}」设置新密码（至少 6 位）`);
+    if (!pw) return;
+    if (pw.length < 6) { toast.error('密码至少 6 位'); return; }
+    try {
+      await updateUser(Number(id), { password: pw });
+      toast.success('密码已重置');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '重置失败');
+    }
+  };
+
+  const handleEdit = async (id: string) => {
+    const target = userList.find(u => u.id === id);
+    if (!target) return;
+    const email = window.prompt('修改邮箱', target.email);
+    if (email === null) return;
+    try {
+      await updateUser(Number(id), { email: email.trim() });
+      toast.success('用户信息已更新');
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '更新失败');
     }
   };
 
@@ -503,6 +560,16 @@ function UserManagementPanel() {
               </tr>
             </thead>
             <tbody>
+              {loading && (
+                <tr className="border-t border-[#1E293B]">
+                  <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-[#64748B]">加载中…</td>
+                </tr>
+              )}
+              {!loading && filteredUsers.length === 0 && (
+                <tr className="border-t border-[#1E293B]">
+                  <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-[#64748B]">暂无用户</td>
+                </tr>
+              )}
               {filteredUsers.map((user, idx) => (
                 <motion.tr
                   key={user.id}
@@ -539,7 +606,7 @@ function UserManagementPanel() {
                         type="button"
                         aria-label={`编辑用户 ${user.name}`}
                         title="编辑用户"
-                        onClick={() => toast('编辑用户功能待接入')}
+                        onClick={() => handleEdit(user.id)}
                         className="rounded p-1 text-slate-500 dark:text-[#64748B] hover:bg-white dark:bg-[#1A2234] hover:text-slate-900 dark:text-[#F1F5F9]"
                       >
                         <Edit3 className="h-4 w-4" />
@@ -548,7 +615,7 @@ function UserManagementPanel() {
                         type="button"
                         aria-label={`重置 ${user.name} 的密码`}
                         title="重置密码"
-                        onClick={() => toast('密码重置功能待接入')}
+                        onClick={() => handleResetPassword(user.id, user.name)}
                         className="rounded p-1 text-slate-500 dark:text-[#64748B] hover:bg-white dark:bg-[#1A2234] hover:text-slate-900 dark:text-[#F1F5F9]"
                       >
                         <Key className="h-4 w-4" />
@@ -1279,7 +1346,7 @@ function AdvancedSettingsPanel() {
 /* ------------------------------------------------------------------ */
 /*  Main Component                                                     */
 /* ------------------------------------------------------------------ */
-export default function Settings() {
+export default function Settings({ currentUser }: { currentUser?: CurrentUser | null } = {}) {
   const [activeCategory, setActiveCategory] = useState('general');
   const [unsavedChanges, setUnsavedChanges] = useState<Record<string, unknown>>({});
   const [displayPrefs, setDisplayPrefs] = useState<DisplayPreferences>(displayPreferences);
@@ -1301,6 +1368,10 @@ export default function Settings() {
   };
 
   const unsavedCount = Object.keys(unsavedChanges).length;
+  // 仅管理员可见「用户管理」分类
+  const visibleSidebarItems = sidebarItems.filter(
+    (item) => item.id !== 'users' || currentUser?.role === 'admin',
+  );
 
   return (
     <div className="min-h-[100dvh] bg-slate-50 dark:bg-[#0A0F1A]">
@@ -1311,7 +1382,7 @@ export default function Settings() {
         <div className="sticky top-20 h-fit w-60 shrink-0">
           <div className="rounded-xl border border-[#1E293B] bg-white dark:bg-[#111827] p-4">
             <div className="space-y-1">
-              {sidebarItems.map((item, idx) => {
+              {visibleSidebarItems.map((item, idx) => {
                 const Icon = item.icon;
                 const isActive = activeCategory === item.id;
                 return (

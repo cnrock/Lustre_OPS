@@ -25,8 +25,11 @@ import {
   Copy,
   ClipboardCheck,
   X,
+  History,
+  Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { authFetch } from '@/lib/auth';
 import { GeneratedEmptyStateVisual } from '@/components/GeneratedEmptyStateVisual';
 import type { HealthCheckCategoryResult, HealthCheckFinding, HealthCheckRemediation, HealthCheckStep } from '@/data/aiHealthData';
 import toast from 'react-hot-toast';
@@ -350,14 +353,14 @@ function buildFallbackRemediation(finding: HealthCheckFinding): HealthCheckRemed
       manualSteps: [
         '确认 MGS、MDS、OSS 节点是否在线，优先检查管理节点和元数据服务。',
         '执行 `lfs check servers`，确认失败组件名称和错误信息。',
-        '检查 `/lustre/client` 是否已挂载；未挂载时确认 MGS NID、网络和挂载参数。',
+        '检查 `/lustre` 是否已挂载；未挂载时确认 MGS NID、网络和挂载参数。',
         '如确认为单个服务异常，在维护窗口执行服务重启或挂载恢复。',
         '恢复后重新执行巡检，并观察 10-15 分钟。',
       ],
-      validationSteps: ['`lfs check servers` 返回正常。', '`mountpoint /lustre/client` 返回成功。', '巡检页集群状态恢复。'],
+      validationSteps: ['`lfs check servers` 返回正常。', '`mountpoint /lustre` 返回成功。', '巡检页集群状态恢复。'],
       commands: [
         { label: '检查 Lustre 服务状态', command: 'lfs check servers' },
-        { label: '检查客户端挂载点', command: 'mountpoint /lustre/client && findmnt /lustre/client || true' },
+        { label: '检查客户端挂载点', command: 'mountpoint /lustre && findmnt /lustre || true' },
         { label: '查看 Lustre 内核日志', command: "journalctl --no-pager -k -n 120 | egrep -i 'lustre|lnet|mgs|mds|oss|ost' | tail -60 || true" },
       ],
     };
@@ -400,8 +403,8 @@ function buildFallbackRemediation(finding: HealthCheckFinding): HealthCheckRemed
       ],
       validationSteps: ['目标 OST 使用率低于告警阈值。', '写入业务无 ENOSPC 或高延迟错误。', '容量趋势恢复正常。'],
       commands: [
-        { label: '查看 Lustre 容量', command: 'lfs df -h /lustre/client 2>/dev/null || lfs df -h 2>/dev/null || true' },
-        { label: '查看 inode 使用', command: 'lfs df -i /lustre/client 2>/dev/null || true' },
+        { label: '查看 Lustre 容量', command: 'lfs df -h /lustre 2>/dev/null || lfs df -h 2>/dev/null || true' },
+        { label: '查看 inode 使用', command: 'lfs df -i /lustre 2>/dev/null || true' },
       ],
     };
   }
@@ -593,7 +596,7 @@ function getScoreMeta(score: number) {
 }
 
 async function runHealthCheckRequest(): Promise<HealthCheckPayload> {
-  const res = await fetch('/api/health-check/run', {
+  const res = await authFetch('/api/health-check/run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
@@ -604,7 +607,7 @@ async function runHealthCheckRequest(): Promise<HealthCheckPayload> {
 }
 
 async function runHealthCheckStream(onLog: (log: Omit<HealthRunLog, 'id'>) => void): Promise<HealthCheckPayload> {
-  const res = await fetch('/api/health-check/run-stream', {
+  const res = await authFetch('/api/health-check/run-stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
@@ -660,7 +663,7 @@ async function runHealthCheckStream(onLog: (log: Omit<HealthRunLog, 'id'>) => vo
 }
 
 async function runRemediationRequest(finding: HealthCheckFinding, plan: HealthCheckRemediation): Promise<RemediationRunResult> {
-  const res = await fetch('/api/health-check/remediate', {
+  const res = await authFetch('/api/health-check/remediate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -689,6 +692,9 @@ export default function HealthCheck() {
   const [remediationDialog, setRemediationDialog] = useState<RemediationDialogState>(null);
   const [remediationRunning, setRemediationRunning] = useState(false);
   const [remediationResult, setRemediationResult] = useState<RemediationRunResult | null>(null);
+  const [historyRuns, setHistoryRuns] = useState<Array<{ id: number; timestamp: string; score: number; checks_passed: number; checks_failed: number; checks_warned: number; finding_count: number; client_mount: string }>>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const runLogEndRef = useRef<HTMLDivElement | null>(null);
 
   const score = healthData?.overallScore ?? 0;
@@ -771,12 +777,69 @@ export default function HealthCheck() {
     runLogEndRef.current?.scrollIntoView({ block: 'end' });
   }, [runLogs]);
 
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await authFetch('/api/health-check/history?limit=50');
+      if (res.ok) {
+        const data = await res.json();
+        setHistoryRuns(data.runs || []);
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const viewHistoryRun = useCallback(async (runId: number) => {
+    try {
+      const res = await authFetch(`/api/health-check/history/${runId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.payload && Object.keys(data.payload).length) {
+        setHealthData(data.payload);
+        setPhase('complete');
+        setRunLogOpen(false);
+        toast.success(`已加载 ${new Date(data.timestamp).toLocaleString('zh-CN')} 的巡检记录`);
+      } else {
+        toast.error('该记录无完整快照');
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '加载失败');
+    }
+  }, []);
+
+  const deleteHistoryRun = useCallback(async (runId: number) => {
+    try {
+      await authFetch(`/api/health-check/history/${runId}`, { method: 'DELETE' });
+      setHistoryRuns((prev) => prev.filter((r) => r.id !== runId));
+      toast.success('记录已删除');
+    } catch {
+      toast.error('删除失败');
+    }
+  }, []);
+
+  // 进入页面时加载最新一次结果与历史；不再自动触发巡检
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void startCheck();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [startCheck]);
+    void loadHistory();
+    (async () => {
+      try {
+        const res = await authFetch('/api/health-check/latest');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.timestamp) {
+            setHealthData(data);
+            setPhase('complete');
+            setSteps(data.steps || DEFAULT_STEPS);
+            setOverallProgress(100);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [loadHistory]);
 
   const openRemediation = (finding: HealthCheckFinding, plan: HealthCheckRemediation) => {
     setRemediationDialog({ finding, plan });
@@ -979,6 +1042,15 @@ th{background:#f1f5f9;padding:10px 12px;border:1px solid #e2e8f0;text-align:left
                 <PlayCircle className="h-5 w-5" />
                 开始健康检查
               </button>
+              <div className="mt-3">
+                <button
+                  onClick={() => { setHistoryOpen(true); void loadHistory(); }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#1E293B] bg-slate-50 px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-white hover:text-slate-900 dark:bg-[#0D1320] dark:text-[#94A3B8] dark:hover:bg-[#1A2234]"
+                >
+                  <History className="h-4 w-4" />
+                  查看巡检历史
+                </button>
+              </div>
             </motion.div>
           )}
 
@@ -1032,6 +1104,10 @@ th{background:#f1f5f9;padding:10px 12px;border:1px solid #e2e8f0;text-align:left
                       <button onClick={exportPDF} className="flex items-center gap-1.5 rounded-lg border border-[#1E293B] bg-slate-50 dark:bg-[#0A0F1A] px-4 py-2 text-sm font-medium text-slate-600 dark:text-[#94A3B8] hover:bg-white dark:bg-[#1A2234] hover:text-slate-900 dark:text-[#F1F5F9] transition-colors">
                         <Download className="h-4 w-4" />
                         导出PDF
+                      </button>
+                      <button onClick={() => { setHistoryOpen(true); void loadHistory(); }} className="flex items-center gap-1.5 rounded-lg border border-[#1E293B] bg-slate-50 dark:bg-[#0A0F1A] px-4 py-2 text-sm font-medium text-slate-600 dark:text-[#94A3B8] hover:bg-white dark:bg-[#1A2234] hover:text-slate-900 dark:text-[#F1F5F9] transition-colors">
+                        <History className="h-4 w-4" />
+                        巡检历史
                       </button>
                     </div>
                   </div>
@@ -1235,6 +1311,74 @@ th{background:#f1f5f9;padding:10px 12px;border:1px solid #e2e8f0;text-align:left
                     {remediationRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}
                     {remediationDialog.plan.canAutoFix ? '确认一键修复' : '执行安全预检'}
                   </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {historyOpen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex justify-end bg-slate-950/60 backdrop-blur-sm"
+              onClick={() => setHistoryOpen(false)}
+            >
+              <motion.div
+                initial={{ x: 40, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 40, opacity: 0 }}
+                className="flex h-full w-full max-w-md flex-col border-l border-[#1E293B] bg-white dark:bg-[#111827]"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+              >
+                <div className="flex items-center justify-between border-b border-[#1E293B] px-5 py-4">
+                  <div className="flex items-center gap-2">
+                    <History className="h-5 w-5 text-[#0EA5E9]" />
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-[#F1F5F9]">巡检历史</h3>
+                    <span className="rounded-full bg-[#0EA5E9]/10 px-2 py-0.5 text-xs text-[#0EA5E9]">{historyRuns.length}</span>
+                  </div>
+                  <button onClick={() => setHistoryOpen(false)} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-[#1A2234]" aria-label="关闭">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4">
+                  {historyLoading && <p className="py-8 text-center text-sm text-slate-500">加载中…</p>}
+                  {!historyLoading && historyRuns.length === 0 && (
+                    <p className="py-8 text-center text-sm text-slate-500">暂无巡检历史记录</p>
+                  )}
+                  <div className="space-y-2">
+                    {historyRuns.map((run) => {
+                      const meta = getScoreMeta(run.score || 0);
+                      return (
+                        <div key={run.id} className="rounded-lg border border-[#1E293B] p-3 dark:bg-[#0D1320]">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-[#64748B]">
+                              <Clock className="h-3.5 w-3.5" />
+                              {new Date(run.timestamp).toLocaleString('zh-CN')}
+                            </div>
+                            <span className="rounded-full px-2 py-0.5 text-xs font-semibold" style={{ backgroundColor: `${meta.color}20`, color: meta.color }}>
+                              {run.score}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600 dark:text-[#94A3B8]">
+                            <span className="text-[#10B981]">通过 {run.checks_passed}</span>
+                            <span className="text-[#F59E0B]">警告 {run.checks_warned}</span>
+                            <span className="text-[#EF4444]">失败 {run.checks_failed}</span>
+                            <span>发现 {run.finding_count}</span>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between">
+                            <span className="font-mono text-[11px] text-slate-400">{run.client_mount}</span>
+                            <div className="flex gap-2">
+                              <button onClick={() => { setHistoryOpen(false); void viewHistoryRun(run.id); }} className="rounded border border-[#1E293B] px-2 py-1 text-xs text-[#0EA5E9] hover:bg-[#0EA5E9]/10">查看</button>
+                              <button onClick={() => void deleteHistoryRun(run.id)} className="rounded border border-[#1E293B] px-2 py-1 text-xs text-red-500 hover:bg-red-500/10">删除</button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </motion.div>
             </motion.div>

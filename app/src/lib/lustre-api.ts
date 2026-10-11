@@ -1,3 +1,6 @@
+import { authFetch } from './auth';
+import { LUSTRE_MOUNT } from './mount';
+
 const API_BASE = '/api';
 
 function buildUrl(endpoint: string) {
@@ -11,7 +14,7 @@ function buildUrl(endpoint: string) {
 
 async function fetchApi<T>(endpoint: string): Promise<T | null> {
   try {
-    const res = await fetch(buildUrl(endpoint), {
+    const res = await authFetch(buildUrl(endpoint), {
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) {
@@ -60,7 +63,7 @@ export async function fetchSummary() {
     mdtCount: mdt ? 1 : 0,
     ostCount: osts.length,
     clientCount: 1,
-    mountPoint: status?.client_mount || '/lustre/client',
+    mountPoint: status?.client_mount || LUSTRE_MOUNT,
     totalCapacity: totalCapGB,
     totalUsed: totalUsedGB,
     totalAvailable: totalCapGB - totalUsedGB,
@@ -208,7 +211,7 @@ export async function fetchAlertActions(id: string | number) {
 
 export async function runAlertAction(id: string | number, actionId: string) {
   try {
-    const res = await fetch(buildUrl(`/api/alerts/${encodeURIComponent(String(id))}/actions/${encodeURIComponent(actionId)}/run`), {
+    const res = await authFetch(buildUrl(`/api/alerts/${encodeURIComponent(String(id))}/actions/${encodeURIComponent(actionId)}/run`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(45000),
@@ -246,7 +249,7 @@ export type AlertAnalysisResult = {
 
 export async function analyzeAlert(id: string | number) {
   try {
-    const res = await fetch(buildUrl(`/api/alerts/${encodeURIComponent(String(id))}/analysis`), {
+    const res = await authFetch(buildUrl(`/api/alerts/${encodeURIComponent(String(id))}/analysis`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(70000),

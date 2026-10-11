@@ -30,6 +30,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { authFetch } from '@/lib/auth';
 import { GeneratedEmptyStateVisual } from '@/components/GeneratedEmptyStateVisual';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import toast from 'react-hot-toast';
@@ -236,7 +237,7 @@ const EMPTY_KNOWLEDGE_STATS: KnowledgeStats = {
 const assetPath = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, '')}`;
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await authFetch(url, {
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers || {}),
@@ -562,7 +563,7 @@ async function uploadKnowledgeDocument(file: File, title: string, tags: string, 
   form.append('title', title);
   form.append('tags', tags);
   if (documentId) form.append('documentId', documentId);
-  const res = await fetch(documentId ? `/api/knowledge/documents/${documentId}/versions/upload` : '/api/knowledge/documents/upload', {
+  const res = await authFetch(documentId ? `/api/knowledge/documents/${documentId}/versions/upload` : '/api/knowledge/documents/upload', {
     method: 'POST',
     body: form,
   });

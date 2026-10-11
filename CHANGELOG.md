@@ -2,6 +2,25 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## v1.1.0 - 2026-10-10
+
+### 修复
+
+- 修复巡检因 `int(None)` 崩溃、挂载点硬编码 `/lustre/client`、缺表 `no such table`、巡检无历史四项问题。
+
+### 新增
+
+- 登录鉴权与会话令牌（角色 admin/engineer/viewer）。
+- 前端登录页、请求自动带令牌。
+- 用户管理（后端 CRUD + 前端对接）。
+- 巡检历史（列表/查看/删除，含 `health_check_runs` 表与接口）。
+
+### 变更
+
+- 挂载点等参数改为环境变量可配置（`LUSTRE_CLIENT_MOUNT` 等）。
+
+详见 `docs/releases/v1.1.0.md`。
+
 ## v1.0.0 - 2026-07-12
 
 ### 新增

@@ -40,19 +40,38 @@ docker push <registry>/lustre-ops:latest
 vi deploy/server/deployment.yaml
 vi deploy/agent/daemonset.yaml
 
-# 2) 先部署后端
+# 2) 集群清单（可选，用于「清单对账」发现未上报节点）
+kubectl apply -f deploy/server/inventory-configmap.yaml
+
+# 3) 先部署后端
 kubectl apply -f deploy/server/deployment.yaml
 
-# 3) 再部署采集 DaemonSet（覆盖所有节点）
+# 4) 再部署采集 DaemonSet（覆盖所有节点）
 kubectl apply -f deploy/agent/daemonset.yaml
 
-# 4) 验证
+# 5) 验证
 kubectl get pods -l app=lustre-ops-agent -o wide       # 每节点一个
 kubectl logs -l app=lustre-ops-agent --tail=5          # 应看到 200
 curl http://<任一节点IP>:32396/api/health
 ```
 
 浏览器打开 `http://203.0.113.10:32396/`（或 `/lustre-ops/`）。
+
+## 三b、集群清单与对账
+
+编辑 `deploy/inventory.json`（你提供的架构：8 个 MDS/OSS + 4 个存储阵列 + 3 个网段），
+生成/更新 ConfigMap：
+
+```bash
+# 方式一：直接编辑 ConfigMap yaml 后 apply
+kubectl apply -f deploy/server/inventory-configmap.yaml
+kubectl rollout restart deploy/lustre-ops-api
+```
+
+后端据此对账，前端「集群管理 → 清单对账」页可看到：
+- **已上报 / 未上报** 服务端列表
+- **心跳超时**（默认 300s）自动告警
+- **清单应有但从未上报** 自动告警（提醒 agent 未部署）
 
 ## 四、关键点
 

@@ -12,6 +12,7 @@ Lustre OPS 告警规则引擎。
 import os
 import json
 import time
+import datetime
 import sqlite3
 import urllib.request
 import urllib.error
@@ -261,6 +262,64 @@ def _notify(level, title, message):
     except Exception as e:
         print(f'[NOTIFY ERROR] {e}')
     return False
+
+
+def check_node_liveness(max_age_seconds=300, expected_servers=None):
+    """节点存活看门狗：
+
+    - 已注册节点心跳超时 -> offline 告警
+    - 清单中应有但从未上报的服务端 -> “应报未报”告警
+
+    expected_servers: [(name, role)] 列表（来自 deployment/inventory.json）。
+    返回新触发的告警数。
+    """
+    rule_offline = {'id': 'rule-node-stale', 'name': '节点心跳超时（疑似掉线）', 'severity': 'critical'}
+    rule_missing = {'id': 'rule-node-missing', 'name': '清单节点未上报采集', 'severity': 'critical'}
+    fired = 0
+    now = datetime.datetime.now()
+    c = _conn()
+    try:
+        rows = c.execute('SELECT node_id, role, last_heartbeat, status FROM lustre_nodes').fetchall()
+    finally:
+        c.close()
+
+    seen_names = set()
+    for r in rows:
+        nid = r['node_id']
+        seen_names.add(nid)
+        hb = r['last_heartbeat']
+        stale = False
+        try:
+            dt = datetime.datetime.strptime((hb or '')[:19], '%Y-%m-%d %H:%M:%S')
+            stale = (now - dt).total_seconds() > max_age_seconds
+        except Exception:
+            stale = False
+        if stale:
+            if not _active_alert_exists(rule_offline['id'], nid):
+                detail = (f"节点 {nid}（{r['role']}）最后心跳 {hb}，已超过 {max_age_seconds}s 未上报。\n\n"
+                          "可能原因：节点宕机、网络中断、agent 停止或 Lustre 卸载。\n"
+                          f"定位步骤：\n  1. ping/管理网连通性：ssh {nid}\n  2. 检查 agent：kubectl get pod -o wide | grep {nid}\n"
+                          "  3. 检查 Lustre 挂载：`mount | grep lustre`")
+                _create_alert(rule_offline, nid, rule_offline['name'], detail)
+                _notify('critical', rule_offline['name'], detail)
+                fired += 1
+        else:
+            _auto_resolve(rule_offline['id'], nid)
+
+    # 应报未报（清单里的服务端从未上报）
+    for item in (expected_servers or []):
+        name = item[0] if isinstance(item, (list, tuple)) else item.get('name')
+        role = item[1] if isinstance(item, (list, tuple)) and len(item) > 1 else (item.get('role') if isinstance(item, dict) else '')
+        if name and name not in seen_names:
+            if not _active_alert_exists(rule_missing['id'], name):
+                detail = (f"清单中的服务端 {name}（{role}）从未上报采集数据。\n\n"
+                          "可能原因：该节点未部署 agent、agent 无法连后端、或道选范围（nodeSelector）未覆盖。\n"
+                          f"定位步骤：\n  1. 确认 DaemonSet 是否调度到该节点：kubectl get pod -o wide | grep {name}\n"
+                          "  2. 检查 agent 日志：kubectl logs <pod>\n  3. 确认 token 与后端地址一致")
+                _create_alert(rule_missing, name, rule_missing['name'], detail)
+                _notify('critical', rule_missing['name'], detail)
+                fired += 1
+    return fired
 
 
 def evaluate(report):

@@ -127,3 +127,24 @@ export async function fetchClusterConfig(): Promise<ClusterConfigLive | null> {
   if (!res.ok) return null;
   return res.json();
 }
+
+export type InventoryServer = {
+  name: string; role: string; mgmtIp?: string; lnet?: string[];
+  reporting: boolean; status: string; lastHeartbeat?: string | null;
+};
+export type Inventory = {
+  cluster: string;
+  networks: Record<string, { cidr: string; gateway?: string; purpose?: string }>;
+  servers: InventoryServer[];
+  storageArrays: Array<{ name: string; mgmtIp: string; bmcIp?: string; type?: string }>;
+  summary: {
+    expectedServers: number; reportingServers: number;
+    missingServers: string[]; totalReportedNodes: number;
+  };
+};
+
+export async function fetchInventory(): Promise<Inventory | null> {
+  const res = await authFetch('/api/inventory');
+  if (!res.ok) return null;
+  return res.json();
+}

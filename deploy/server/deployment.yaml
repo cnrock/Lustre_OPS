@@ -82,6 +82,8 @@ spec:
                 secretKeyRef:
                   name: lustre-ops-secret
                   key: ingestToken
+            - name: LUSTRE_INVENTORY
+              value: "/etc/lustre-ops/inventory.json"
             - name: LUSTRE_ADMIN_USER
               value: "admin"
             - name: LUSTRE_ADMIN_PASS
@@ -102,10 +104,17 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: inventory
+              mountPath: /etc/lustre-ops
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: lustre-ops-data
+        - name: inventory
+          configMap:
+            name: lustre-ops-inventory
+            optional: true
 ---
 apiVersion: v1
 kind: Service

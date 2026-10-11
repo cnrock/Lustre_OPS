@@ -3331,7 +3331,11 @@ def store_report(report):
 
 
 def _local_collect_loop(interval):
-    """本机自采集后台线程：定时采集并写库 + 评估告警。"""
+    """本机自采集后台线程：定时采集并写库 + 评估告警 + 节点存活检查。"""
+    # 存活看门狗周期（默认 60s），独立于采集间隔
+    watchdog_every = int(os.environ.get('LUSTRE_WATCHDOG_INTERVAL', '60'))
+    max_age = int(os.environ.get('LUSTRE_NODE_STALE_SECONDS', '300'))
+    last_watchdog = 0.0
     while True:
         try:
             report = lustre_collect.collect_report()
@@ -3345,6 +3349,19 @@ def _local_collect_loop(interval):
                     print(f'[SELF-COLLECT ALERT ERROR] {e}')
         except Exception as e:
             print(f'[SELF-COLLECT ERROR] {e}')
+
+        # 周期执行节点存活看门狗
+        now = time.time()
+        if now - last_watchdog >= watchdog_every:
+            last_watchdog = now
+            try:
+                inv = load_inventory()
+                expected = [(s.get('name'), s.get('role')) for s in (inv or {}).get('servers', [])]
+                n = alert_engine.check_node_liveness(max_age_seconds=max_age, expected_servers=expected)
+                if n:
+                    print(f'[WATCHDOG] 触发 {n} 条节点存活告警')
+            except Exception as e:
+                print(f'[WATCHDOG ERROR] {e}')
         time.sleep(interval)
 
 
@@ -3381,6 +3398,77 @@ def nodes_registry():
             'lastHeartbeat': r['last_heartbeat'], 'status': r['status'],
         })
     return jsonify({'count': len(out), 'nodes': out})
+
+
+INVENTORY_PATH = os.environ.get('LUSTRE_INVENTORY', '/opt/lustre-data/inventory.json')
+
+
+def load_inventory():
+    """加载集群清单（应有节点），用于与实际采集到的节点对账。"""
+    for p in (INVENTORY_PATH, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'deploy', 'inventory.json')):
+        try:
+            with open(p, encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            continue
+    return None
+
+
+@app.route('/api/inventory', methods=['GET'])
+def inventory_view():
+    """集群清单 + 与实采节点对账结果（发现漏报/掉线）。"""
+    inv = load_inventory()
+    if not inv:
+        return jsonify({'ok': False, 'error': '未找到 inventory.json'}), 404
+
+    rows = db_query('SELECT node_id, ip, role, nid, last_heartbeat, status FROM lustre_nodes')
+    reported = {r['node_id']: r for r in rows}
+    reported_ips = {r['ip'] for r in rows if r.get('ip')}
+
+    def node_key(srv):
+        # 采集上报的 node_id 可能是 hostname / spec.nodeName / 短名
+        names = {srv.get('name')} | set(srv.get('hostnames') or [])
+        for n in names:
+            if n and n in reported:
+                return n
+        # 再按 LNET IP / 管理 IP 匹配
+        for ip in (srv.get('lnet') or []) + [srv.get('mgmtIp')]:
+            if ip in reported_ips:
+                for nid, r in reported.items():
+                    if r.get('ip') == ip:
+                        return nid
+        return None
+
+    servers = []
+    missing = []
+    for srv in inv.get('servers', []):
+        key = node_key(srv)
+        rec = reported.get(key) if key else None
+        item = {
+            'name': srv['name'], 'role': srv['role'], 'mgmtIp': srv.get('mgmtIp'),
+            'lnet': srv.get('lnet') or [],
+            'reporting': bool(rec),
+            'status': rec['status'] if rec else 'no-data',
+            'lastHeartbeat': rec['last_heartbeat'] if rec else None,
+        }
+        servers.append(item)
+        if not rec:
+            missing.append(srv['name'])
+
+    return jsonify({
+        'ok': True,
+        'cluster': inv.get('cluster'),
+        'networks': inv.get('networks'),
+        'servers': servers,
+        'storageArrays': inv.get('storageArrays'),
+        'clients': inv.get('clients'),
+        'summary': {
+            'expectedServers': len(inv.get('servers', [])),
+            'reportingServers': sum(1 for s in servers if s['reporting']),
+            'missingServers': missing,
+            'totalReportedNodes': len(reported),
+        },
+    })
 
 
 @app.route('/api/alert-rules', methods=['GET'])

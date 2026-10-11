@@ -1,0 +1,28 @@
+{
+  "cluster": "lustrefs",
+  "networks": {
+    "management": {"cidr": "192.0.2.0/24", "gateway": "192.0.2.254", "purpose": "管理网"},
+    "bmc": {"cidr": "198.51.100.0/24", "gateway": "198.51.100.254", "purpose": "BMC/带外"},
+    "lnet": {"cidr": "203.0.113.0/24", "gateway": "203.0.113.254", "purpose": "200Gbps LNET", "mtu": 4096}
+  },
+  "servers": [
+    {"name": "srv1", "role": "mixed", "mgmtIp": "192.0.2.20", "lnet": ["203.0.113.100", "203.0.113.101"], "hostnames": ["srv1-i1", "srv1-i2"]},
+    {"name": "srv2", "role": "mixed", "mgmtIp": "192.0.2.21", "lnet": ["203.0.113.102", "203.0.113.103"], "hostnames": ["srv2-i1", "srv2-i2"]},
+    {"name": "srv3",    "role": "oss",   "mgmtIp": "192.0.2.22", "lnet": ["203.0.113.104", "203.0.113.105"], "hostnames": ["srv3-i1", "srv3-i2"]},
+    {"name": "srv4",    "role": "oss",   "mgmtIp": "192.0.2.23", "lnet": ["203.0.113.106", "203.0.113.107"], "hostnames": ["srv4-i1", "srv4-i2"]},
+    {"name": "srv5", "role": "mixed", "mgmtIp": "192.0.2.24", "lnet": ["203.0.113.108", "203.0.113.109"], "hostnames": ["srv5-i1", "srv5-i2"]},
+    {"name": "srv6", "role": "mixed", "mgmtIp": "192.0.2.25", "lnet": ["203.0.113.110", "203.0.113.111"], "hostnames": ["srv6-i1", "srv6-i2"]},
+    {"name": "srv7",    "role": "oss",   "mgmtIp": "192.0.2.26", "lnet": ["203.0.113.112", "203.0.113.113"], "hostnames": ["srv7-i1", "srv7-i2"]},
+    {"name": "srv8",    "role": "oss",   "mgmtIp": "192.0.2.27", "lnet": ["203.0.113.114", "203.0.113.115"], "hostnames": ["srv8-i1", "srv8-i2"]}
+  ],
+  "storageArrays": [
+    {"name": "array-a0", "mgmtIp": "192.0.2.10", "bmcIp": "198.51.100.35", "type": "ES400NVX2"},
+    {"name": "array-a1", "mgmtIp": "192.0.2.11", "bmcIp": "198.51.100.36", "type": "ES400NVX2"},
+    {"name": "array-a2", "mgmtIp": "192.0.2.12", "bmcIp": "198.51.100.37", "type": "ES400NVX2"},
+    {"name": "array-a3", "mgmtIp": "192.0.2.13", "bmcIp": "198.51.100.38", "type": "ES400NVX2"}
+  ],
+  "clients": {
+    "lnetRange": "203.0.113.3-203.0.113.34",
+    "note": "客户端 LNET 网段（BMC/管理网未单独给出时以 LNET NID 识别）"
+  }
+}

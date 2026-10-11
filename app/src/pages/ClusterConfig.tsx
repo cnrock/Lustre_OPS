@@ -39,12 +39,14 @@ import {
   type ConfigDiffEntry,
 } from '@/data/mockClusterConfig';
 import { useLiveClusterNodes, useLiveFileSystems } from '@/lib/clusterMap';
+import { useInventory } from '@/lib/inventoryStore';
 import toast from 'react-hot-toast';
 
 const tabs = [
   { id: 'topology', label: '拓扑结构' },
   { id: 'filesystem', label: '文件系统参数' },
   { id: 'nodes', label: '节点配置' },
+  { id: 'inventory', label: '清单对账' },
   { id: 'tuning', label: '调优参数' },
   { id: 'diff', label: '配置对比' },
 ];
@@ -1223,6 +1225,121 @@ function ConfigDiffTab() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Inventory Reconciliation Panel (expected vs reported)              */
+/* ------------------------------------------------------------------ */
+function InventoryReconciliationPanel() {
+  const { inv, loading, refresh } = useInventory();
+
+  if (loading && !inv) {
+    return <div className="px-6 py-10 text-center text-sm text-slate-500 dark:text-[#64748B]">加载集群清单…</div>;
+  }
+  if (!inv) {
+    return <div className="px-6 py-10 text-center text-sm text-slate-500 dark:text-[#64748B]">未找到集群清单（deploy/inventory.json）</div>;
+  }
+
+  const s = inv.summary;
+  const allOk = s.missingServers.length === 0;
+
+  return (
+    <div className="space-y-6 px-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-[#F1F5F9]">集群清单对账</h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-[#64748B]">
+            应采集节点与实际上报节点比对，发现漏报/未部署 agent 的节点
+          </p>
+        </div>
+        <button onClick={() => void refresh()} className="rounded-lg border border-[#1E293B] bg-white dark:bg-[#111827] px-3 py-1.5 text-sm text-slate-600 dark:text-[#94A3B8] hover:border-[#0EA5E9] hover:text-[#0EA5E9]">
+          <RefreshCw className="mr-1 inline h-3.5 w-3.5" />刷新
+        </button>
+      </div>
+
+      {/* 概览 */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {[
+          { label: '应采服务端', value: s.expectedServers, color: '#3B82F6' },
+          { label: '已上报', value: s.reportingServers, color: '#10B981' },
+          { label: '未上报', value: s.missingServers.length, color: s.missingServers.length ? '#EF4444' : '#10B981' },
+          { label: '总上报节点', value: s.totalReportedNodes, color: '#6366F1' },
+        ].map((m) => (
+          <div key={m.label} className="rounded-xl border border-[#1E293B] bg-white dark:bg-[#111827] p-4">
+            <div className="text-sm text-slate-500 dark:text-[#64748B]">{m.label}</div>
+            <div className="mt-1 text-3xl font-bold tabular-nums" style={{ color: m.color }}>{m.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {!allOk && (
+        <div className="rounded-lg border border-[#EF4444]/30 bg-[#EF4444]/5 p-3 text-sm text-[#EF4444]">
+          有 {s.missingServers.length} 个服务端未上报采集：{s.missingServers.join('、')}。请确认 DaemonSet 已调度到这些节点。
+        </div>
+      )}
+
+      {/* 服务端列表 */}
+      <div className="overflow-x-auto rounded-xl border border-[#1E293B] bg-white dark:bg-[#111827]">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[#1E293B] text-left text-xs uppercase text-slate-500 dark:text-[#64748B]">
+              <th className="px-3 py-3 font-medium">服务端</th>
+              <th className="px-3 py-3 font-medium">角色</th>
+              <th className="px-3 py-3 font-medium">管理IP</th>
+              <th className="px-3 py-3 font-medium">LNET</th>
+              <th className="px-3 py-3 font-medium">上报状态</th>
+              <th className="px-3 py-3 font-medium">最后心跳</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inv.servers.map((srv) => (
+              <tr key={srv.name} className="border-b border-[#1E293B] hover:bg-white dark:bg-[#1A2234]">
+                <td className="px-3 py-3 font-medium text-slate-900 dark:text-[#F1F5F9]">{srv.name}</td>
+                <td className="px-3 py-3 text-slate-600 dark:text-[#94A3B8]">{srv.role}</td>
+                <td className="px-3 py-3 font-mono text-xs text-slate-600 dark:text-[#94A3B8]">{srv.mgmtIp || '-'}</td>
+                <td className="px-3 py-3 font-mono text-xs text-slate-600 dark:text-[#94A3B8]">{(srv.lnet || []).join(', ') || '-'}</td>
+                <td className="px-3 py-3">
+                  <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', srv.reporting ? 'bg-[#10B981]/10 text-[#10B981]' : 'bg-[#EF4444]/10 text-[#EF4444]')}>
+                    {srv.reporting ? '已上报' : '未上报'}
+                  </span>
+                </td>
+                <td className="px-3 py-3 text-xs text-slate-500 dark:text-[#64748B]">{srv.lastHeartbeat || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 存储阵列 + 网段 */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-[#1E293B] bg-white dark:bg-[#111827] p-4">
+          <h4 className="mb-3 text-sm font-semibold text-slate-900 dark:text-[#F1F5F9]">存储阵列 (ES400NVX2)</h4>
+          <div className="space-y-2">
+            {inv.storageArrays.map((a) => (
+              <div key={a.name} className="flex items-center justify-between rounded-lg border border-[#1E293B] px-3 py-2 text-xs dark:bg-[#0D1320]">
+                <span className="font-medium text-slate-900 dark:text-[#F1F5F9]">{a.name}</span>
+                <span className="font-mono text-slate-500 dark:text-[#64748B]">管理 {a.mgmtIp} · BMC {a.bmcIp}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-xl border border-[#1E293B] bg-white dark:bg-[#111827] p-4">
+          <h4 className="mb-3 text-sm font-semibold text-slate-900 dark:text-[#F1F5F9]">网络</h4>
+          <div className="space-y-2">
+            {Object.entries(inv.networks || {}).map(([k, v]) => (
+              <div key={k} className="rounded-lg border border-[#1E293B] px-3 py-2 text-xs dark:bg-[#0D1320]">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-slate-900 dark:text-[#F1F5F9]">{v.purpose || k}</span>
+                  <span className="font-mono text-slate-500 dark:text-[#64748B]">{v.cidr}</span>
+                </div>
+                {v.gateway && <div className="mt-0.5 text-slate-500 dark:text-[#64748B]">网关 {v.gateway}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main Component                                                     */
 /* ------------------------------------------------------------------ */
 export default function ClusterConfig() {
@@ -1312,6 +1429,18 @@ export default function ClusterConfig() {
               transition={{ duration: 0.2 }}
             >
               <NodeConfigurationTab />
+            </motion.div>
+          )}
+
+          {activeTab === 'inventory' && (
+            <motion.div
+              key="inventory"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <InventoryReconciliationPanel />
             </motion.div>
           )}
 

@@ -40,6 +40,7 @@ import {
 } from '@/data/mockClusterConfig';
 import { useLiveClusterNodes, useLiveFileSystems } from '@/lib/clusterMap';
 import { useInventory } from '@/lib/inventoryStore';
+import { useServerProbes } from '@/lib/serverProbeStore';
 import toast from 'react-hot-toast';
 
 const tabs = [
@@ -47,6 +48,7 @@ const tabs = [
   { id: 'filesystem', label: '文件系统参数' },
   { id: 'nodes', label: '节点配置' },
   { id: 'inventory', label: '清单对账' },
+  { id: 'server', label: '服务端探针' },
   { id: 'tuning', label: '调优参数' },
   { id: 'diff', label: '配置对比' },
 ];
@@ -1340,6 +1342,121 @@ function InventoryReconciliationPanel() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Server Probe Panel (DDN server-side deep checks)                   */
+/* ------------------------------------------------------------------ */
+function ServerProbePanel() {
+  const { probes, loading, refresh } = useServerProbes();
+
+  const statusBadge = (ok: boolean, text?: string) => (
+    <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', ok ? 'bg-[#10B981]/10 text-[#10B981]' : 'bg-[#EF4444]/10 text-[#EF4444]')}>
+      {text || (ok ? '正常' : '异常')}
+    </span>
+  );
+
+  return (
+    <div className="space-y-6 px-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-[#F1F5F9]">服务端深度探针</h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-[#64748B]">
+            依据 DDN 手册采集：Recovery 状态 · check_servers.pl · IB HCA · DDN 磁盘数 · LDLM
+          </p>
+        </div>
+        <button onClick={() => void refresh()} className="rounded-lg border border-[#1E293B] bg-white dark:bg-[#111827] px-3 py-1.5 text-sm text-slate-600 dark:text-[#94A3B8] hover:border-[#0EA5E9] hover:text-[#0EA5E9]">
+          <RefreshCw className="mr-1 inline h-3.5 w-3.5" />刷新
+        </button>
+      </div>
+
+      {loading && probes.length === 0 && (
+        <div className="py-10 text-center text-sm text-slate-500 dark:text-[#64748B]">加载服务端探针…</div>
+      )}
+      {!loading && probes.length === 0 && (
+        <div className="rounded-xl border border-dashed border-[#1E293B] py-10 text-center text-sm text-slate-500 dark:text-[#64748B]">
+          暂无服务端探针数据（仅 MDS/OSS 节点采集此项）
+        </div>
+      )}
+
+      {probes.map((p) => {
+        const pr = p.probe || {};
+        const recs = pr.recovery || [];
+        const ibOk = !pr.ib?.available || (pr.ib?.hcas || []).every((h) => h.ports.every((pt) => (pt.state || '').toLowerCase().includes('active')));
+        const diskCnt = pr.disks?.ddnDiskCount;
+        const expectedDisks = ['mds', 'mgs', 'mixed'].includes(p.role) ? 6 : 4;
+        const diskOk = diskCnt === undefined || diskCnt >= expectedDisks;
+        const cs = pr.ddnScripts?.check_servers;
+        const downCnt = cs?.down_count || 0;
+
+        return (
+          <div key={p.nodeId} className="rounded-xl border border-[#1E293B] bg-white dark:bg-[#111827] p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Server className="h-5 w-5 text-[#0EA5E9]" />
+                <span className="text-base font-semibold text-slate-900 dark:text-[#F1F5F9]">{p.nodeId}</span>
+                <span className="rounded-full bg-[#0EA5E9]/10 px-2 py-0.5 text-xs text-[#0EA5E9]">{p.role}</span>
+              </div>
+              <span className="text-xs text-slate-500 dark:text-[#64748B]">{p.timestamp}</span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {/* Recovery */}
+              <div className="rounded-lg border border-[#1E293B] p-3 dark:bg-[#0D1320]">
+                <div className="mb-2 text-sm font-medium text-slate-900 dark:text-[#F1F5F9]">Recovery 状态</div>
+                {recs.length === 0 ? (
+                  <div className="text-xs text-slate-500 dark:text-[#64748B]">无 MDT/OST recovery 记录</div>
+                ) : (
+                  <div className="space-y-1">
+                    {recs.map((r) => {
+                      const done = (r.status || '').toUpperCase() === 'COMPLETE';
+                      return (
+                        <div key={r.name} className="flex items-center justify-between text-xs">
+                          <span className="font-mono text-slate-600 dark:text-[#94A3B8]">{r.name}</span>
+                          <span className="flex items-center gap-2">
+                            {!done && r.time_remaining && <span className="text-slate-500 dark:text-[#64748B]">剩余 {r.time_remaining}s</span>}
+                            {statusBadge(done, r.status)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* IB */}
+              <div className="rounded-lg border border-[#1E293B] p-3 dark:bg-[#0D1320]">
+                <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-900 dark:text-[#F1F5F9]">
+                  <span>IB HCA</span>{pr.ib?.available ? statusBadge(ibOk) : <span className="text-xs text-slate-500 dark:text-[#64748B]">不可用</span>}
+                </div>
+                {(pr.ib?.hcas || []).map((h) => (
+                  <div key={h.name} className="text-xs text-slate-600 dark:text-[#94A3B8]">
+                    {h.name}: {h.ports.map((pt) => `port${pt.port} ${pt.state}/${pt.rate}`).join(' · ')}
+                  </div>
+                ))}
+              </div>
+
+              {/* Disk */}
+              <div className="rounded-lg border border-[#1E293B] p-3 dark:bg-[#0D1320]">
+                <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-900 dark:text-[#F1F5F9]">
+                  <span>DDN 磁盘数</span>{statusBadge(diskOk)}
+                </div>
+                <div className="text-xs text-slate-600 dark:text-[#94A3B8]">识别 {diskCnt ?? '-'} 块（期望 ≥ {expectedDisks}）</div>
+              </div>
+
+              {/* check_servers + ldlm */}
+              <div className="rounded-lg border border-[#1E293B] p-3 dark:bg-[#0D1320]">
+                <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-900 dark:text-[#F1F5F9]">
+                  <span>check_servers.pl</span>{cs?.available ? statusBadge(downCnt === 0, downCnt === 0 ? '全部 OK' : `DOWN ${downCnt}`) : <span className="text-xs text-slate-500 dark:text-[#64748B]">不可用</span>}
+                </div>
+                <div className="text-xs text-slate-600 dark:text-[#94A3B8]">LDLM 锁数量 {pr.ldlm?.totalLockCount ?? '-'}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main Component                                                     */
 /* ------------------------------------------------------------------ */
 export default function ClusterConfig() {
@@ -1441,6 +1558,18 @@ export default function ClusterConfig() {
               transition={{ duration: 0.2 }}
             >
               <InventoryReconciliationPanel />
+            </motion.div>
+          )}
+
+          {activeTab === 'server' && (
+            <motion.div
+              key="server"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <ServerProbePanel />
             </motion.div>
           )}
 

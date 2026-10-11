@@ -2,7 +2,7 @@
 
 Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监控与诊断控制台。项目将文件系统状态、性能与容量指标、LNet 网络、告警、集群巡检、日志分析和知识库集中在一个 Web 工作台中，降低日常巡检和故障定位的操作成本。
 
-> 当前版本：`v1.4.0`。新增集群清单与对账能力：登记应采集的服务端与存储阵列，自动比对实际上报节点，发现漏报与掉线节点并告警。生产环境部署前请先阅读[安全说明](SECURITY.md)和[部署指南](docs/deployment.md)。
+> 当前版本：`v1.5.0`。依据 DDN LustreFS 操作手册新增服务端深度探针：采集 MDT/OST Recovery 状态、`check_servers.pl`、IB HCA、DDN 磁盘数与 LDLM 锁，并配套告警规则与处理指引。生产环境部署前请先阅读[安全说明](SECURITY.md)和[部署指南](docs/deployment.md)。
 
 ![Lustre OPS 云控制台总览](app/product-audit/cloud-console-dashboard-final.png)
 
@@ -57,6 +57,12 @@ Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监�
 - 结构化集群清单：登记应采集的 MDS/OSS 服务端、存储阵列与网络网段。
 - 对账接口：比对「应有节点」与「实际上报节点」。
 - 节点存活看门狗：心跳超时告警 + 应报未报告警（提醒 Agent 未部署或未调度）。
+
+### 服务端深度探针
+
+- 依据 DDN LustreFS 操作手册采集服务端指标：MDT/OST Recovery 状态、`check_servers.pl`、`get_ost.pl`、IB HCA（`ibstat`）、DDN 磁盘数（`lsscsi`）与 LDLM 锁数量。
+- 配套告警规则（含处理指引）：Recovery 未完成、Target DOWN、IB 端口未 LinkUp、DDN 磁盘数不足。
+- 前端「服务端探针」页集中展示每台 MDS/OSS 的探针结果。
 
 ### AI 日志分析与知识库
 
@@ -158,7 +164,8 @@ python -m unittest api.test_knowledge_overview api.test_ai_response_policy -v
 
 ## 当前边界
 
-- `v1.4.0` 提供集群清单对账；Agent 控制面（注册、任务下发、断点续传）仍为简化实现。
+- `v1.5.0` 服务端深度探针依据 DDN LustreFS 操作手册实现，依赖节点上存在 `check_servers.pl` / `get_ost.pl` / `rg_control` / `ibstat` / `lsscsi` 等命令；缺失时对应项自动标记为不可用。
+- Agent 控制面（注册、任务下发、断点续传）仍为简化实现。
 - 已提供基础登录鉴权与会话令牌；细粒度 RBAC 与审计持久化仍在路线图中。
 - 告警已支持规则引擎、自动闭环与飞书 Webhook；邮件、企业微信等更多通知渠道在路线图中。
 - 清单需人工维护（`deploy/inventory.json` / ConfigMap）；自动发现与拓扑感知在路线图中。
@@ -169,9 +176,9 @@ python -m unittest api.test_knowledge_overview api.test_ai_response_policy -v
 
 - Agent 控制面完善：节点注册、心跳管理、任务下发、超时与断点续传。
 - 细粒度 RBAC、登录失败锁定与完整操作审计。
-- 服务端深度探针（Recovery / IB / 磁盘 / DDN 脚本）——已在 v1.5.0 落地。
 - Quota 监控（用户 / 组 / 项目配额与 Grace Time）。
 - 清单自动发现与拓扑感知。
+- Prometheus / Grafana 集成，复用现有监控栈。
 - PostgreSQL + pgvector 或独立向量数据库，接入真实 embedding 与知识质量权重。
 - 告警聚合、更多通知渠道、工单联动和高可用部署。
 
@@ -181,6 +188,7 @@ python -m unittest api.test_knowledge_overview api.test_ai_response_policy -v
 - v1.2.0：全集群真实监控——推送式多节点采集、告警规则引擎（客户端连接故障 / 内核错误签名）、飞书推送，前端接真实后端。
 - v1.3.0：容器化部署——DaemonSet 全节点采集、前后端一体化镜像、完整 K8s 清单。
 - v1.4.0：集群清单对账——应采/实采比对、心跳超时与应报未报告警。
+- v1.5.0：服务端深度探针——Recovery / check_servers.pl / IB HCA / DDN 磁盘数 / LDLM，含告警与处理指引。
 
 ## 许可证
 

@@ -35,6 +35,15 @@ DEFAULT_RULES = [
     # 内核日志严重错误签名
     {'id': 'rule-kernel-error', 'name': '内核 Lustre/LNet 错误', 'metric': 'kernel_error',
      'condition': '>', 'threshold': '0', 'severity': 'critical', 'enabled': 1, 'duration': '0'},
+    # 服务端深度探针
+    {'id': 'rule-recovery-pending', 'name': 'Target Recovery 未完成', 'metric': 'recovery_pending',
+     'condition': '>', 'threshold': '0', 'severity': 'warning', 'enabled': 1, 'duration': '0'},
+    {'id': 'rule-target-down', 'name': 'MDT/OST Target DOWN', 'metric': 'target_down',
+     'condition': '>', 'threshold': '0', 'severity': 'critical', 'enabled': 1, 'duration': '0'},
+    {'id': 'rule-ib-link-down', 'name': 'IB HCA 端口未 LinkUp', 'metric': 'ib_link_down',
+     'condition': '>', 'threshold': '0', 'severity': 'critical', 'enabled': 1, 'duration': '0'},
+    {'id': 'rule-disk-missing', 'name': 'DDN 磁盘数不足', 'metric': 'disk_missing',
+     'condition': '>', 'threshold': '0', 'severity': 'critical', 'enabled': 1, 'duration': '0'},
 ]
 
 # 告警处理指引：按 rule_id 给出定位步骤与解决建议
@@ -76,6 +85,29 @@ REMEDIATION_HINTS = {
         'summary': '本节点 Lustre/LNet 内核模块未加载或已卸载。',
         'locate': ['`lsmod | egrep "lustre|lnet"`。', '`lctl list_nids` 是否为空。'],
         'fix': ['按标准流程重新加载 Lustre/LNet 模块；确认 /etc/lnet.conf 与 fstab。'],
+    },
+    'rule-recovery-pending': {
+        'summary': 'MDT/OST 正在 recovery（RECOVERING），客户端暂不可用。',
+        'locate': ['查看状态：`cat /proc/fs/lustre/mdt/*/recovery_status`（OST 用 /proc/fs/lustre/obdfilter/*/recovery_status）。',
+                   '关注 status / time_remaining / connected_clients / evicted_clients。'],
+        'fix': ['等待 recovery 完成（COMPLETE）即可；若长时间不结束或 evicted_clients 持续增长，按 DDN 手册检查网络与服务端。'],
+    },
+    'rule-target-down': {
+        'summary': 'DDN check_servers.pl 报告有 MDT/OST 处于 DOWN。',
+        'locate': ['执行 `check_servers.pl -v` 查看具体 DOWN 的 target。',
+                   '在对应 MDS/OSS 上 `get_ost.pl -v` 确认 Active/Deactive 与 HA 归属。'],
+        'fix': ['确认 ES400NVX2 控制器与磁盘正常；必要时按 DDN 手册切换/接管资源组（rg_control）。'],
+    },
+    'rule-ib-link-down': {
+        'summary': 'IB HCA 端口未 ACTIVE/LinkUp，或速率异常（手册要求 100/200Gb）。',
+        'locate': ['`ibstat` 确认 mlx5_0/mlx5_1 的 port 1 为 ACTIVE/LinkUp 且 rate 正常。',
+                   '`lspci` 确认 OS 已识别 IB HCA。'],
+        'fix': ['检查 IB/200G 交换机端口、线缆（HDR Cable）与对端；硬件确认后按变更流程处理。'],
+    },
+    'rule-disk-missing': {
+        'summary': 'lsscsi 识别到的 DDN 磁盘数少手册要求（MDS/OSS=6，OSS=4）。',
+        'locate': ['`lsscsi | grep -c DDN` 确认数量。'],
+        'fix': ['确认 ES400NVX2 两个控制器是否正常；检查 FC/链路与存储侧映射。'],
     },
 }
 
@@ -352,6 +384,50 @@ def evaluate(report):
         observations.append(('kernel_error', f'{node_id}:{sig}', 1, f'{node_id} 命中错误签名：{sig}'))
     if not sig_list:
         observations.append(('kernel_error', f'node:{node_id}', 0, f'节点 {node_id} 无严重错误签名'))
+
+    # 服务端深度探针（仅 MDS/OSS）
+    sp = report.get('server_probe') or {}
+    if sp:
+        # 1) Recovery 状态：RECOVERING 视为未完成（告警），COMPLETE 可闭环
+        for rec in sp.get('recovery', []):
+            name = rec.get('name') or node_id
+            status = (rec.get('status') or '').upper()
+            if status and status != 'COMPLETE':
+                remain = rec.get('time_remaining') or '?'
+                observations.append(('recovery_pending', name, 1,
+                                     f"{name} recovery 未完成（{status}，剩余 {remain}s）"))
+            else:
+                observations.append(('recovery_pending', name, 0, f'{name} recovery 正常'))
+        # 2) DDN check_servers.pl 报 DOWN 数
+        cs = (sp.get('ddnScripts') or {}).get('check_servers') or {}
+        if cs.get('available'):
+            observations.append(('target_down', node_id, cs.get('down_count', 0),
+                                 f"{node_id} check_servers DOWN 数 {cs.get('down_count')}"))
+        # 3) IB：任一 port 非 ACTIVE/LinkUp 则告警
+        ib = sp.get('ib') or {}
+        if ib.get('available'):
+            bad = []
+            for hca in ib.get('hcas', []):
+                for p in hca.get('ports', []):
+                    st = (p.get('state') or '').lower()
+                    if st and 'active' not in st:
+                        bad.append(f"{hca.get('name')}/port{p.get('port')}={p.get('state')}")
+            if bad:
+                observations.append(('ib_link_down', node_id, len(bad),
+                                     f"{node_id} IB 端口异常：{', '.join(bad)}"))
+            else:
+                observations.append(('ib_link_down', node_id, 0, f'{node_id} IB 端口正常'))
+        # 4) 磁盘数：MDS/OSS=6、OSS=4（手册）
+        disks = sp.get('disks') or {}
+        expected = 6 if report.get('role') in ('mds', 'mgs', 'mixed') else 4
+        cnt = disks.get('ddnDiskCount')
+        if cnt is not None:
+            missing = max(0, expected - int(cnt))
+            if missing:
+                observations.append(('disk_missing', node_id, missing,
+                                     f"{node_id} DDN 磁盘数 {cnt}，期望 {expected}"))
+            else:
+                observations.append(('disk_missing', node_id, 0, f'{node_id} 磁盘数正常'))
 
     for rule in rules:
         metric = rule['metric']

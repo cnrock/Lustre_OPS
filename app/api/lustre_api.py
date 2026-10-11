@@ -70,6 +70,13 @@ def ensure_metrics_tables():
                 lustre_version TEXT, kernel_version TEXT, services_json TEXT,
                 target_mounts_json TEXT, last_heartbeat TEXT, status TEXT DEFAULT 'online'
             )""")
+        # 服务端深度探针快照（recovery / IB / 磁盘 / ldlm / DDN 脚本）
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS server_probes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL, node_id TEXT, role TEXT, probe_json TEXT
+            )""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_server_probes_ts ON server_probes(timestamp, node_id)")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS alerts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, level TEXT,
@@ -3322,6 +3329,12 @@ def store_report(report):
              report.get('kernel_version') or '',
              json.dumps(report.get('services') or [], ensure_ascii=False),
              json.dumps(report.get('target_mounts') or [], ensure_ascii=False), ts))
+        # 服务端深度探针快照
+        if report.get('server_probe'):
+            cur.execute(
+                'INSERT INTO server_probes (timestamp, node_id, role, probe_json) VALUES (?,?,?,?)',
+                (ts, report.get('node_id'), report.get('role'),
+                 json.dumps(report.get('server_probe'), ensure_ascii=False)))
         conn.commit()
         conn.close()
         return True, None
@@ -3398,6 +3411,42 @@ def nodes_registry():
             'lastHeartbeat': r['last_heartbeat'], 'status': r['status'],
         })
     return jsonify({'count': len(out), 'nodes': out})
+
+
+@app.route('/api/server-probes', methods=['GET'])
+def server_probes_list():
+    """最新一次各服务端节点的深度探针快照。"""
+    rows = db_query("""
+        SELECT node_id, role, timestamp, probe_json
+        FROM server_probes
+        WHERE id IN (SELECT MAX(id) FROM server_probes GROUP BY node_id)
+        ORDER BY node_id
+    """)
+    out = []
+    for r in rows:
+        try:
+            probe = json.loads(r.get('probe_json') or '{}')
+        except Exception:
+            probe = {}
+        out.append({'nodeId': r['node_id'], 'role': r['role'],
+                    'timestamp': r['timestamp'], 'probe': probe})
+    return jsonify({'count': len(out), 'probes': out})
+
+
+@app.route('/api/server-probes/<node_id>', methods=['GET'])
+def server_probe_detail(node_id):
+    rows = db_query(
+        'SELECT node_id, role, timestamp, probe_json FROM server_probes'
+        ' WHERE node_id = ? ORDER BY id DESC LIMIT 1', (node_id,))
+    if not rows:
+        return jsonify({'error': '该节点无服务端探针数据'}), 404
+    r = rows[0]
+    try:
+        probe = json.loads(r.get('probe_json') or '{}')
+    except Exception:
+        probe = {}
+    return jsonify({'nodeId': r['node_id'], 'role': r['role'],
+                    'timestamp': r['timestamp'], 'probe': probe})
 
 
 INVENTORY_PATH = os.environ.get('LUSTRE_INVENTORY', '/opt/lustre-data/inventory.json')

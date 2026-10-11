@@ -148,3 +148,24 @@ export async function fetchInventory(): Promise<Inventory | null> {
   if (!res.ok) return null;
   return res.json();
 }
+
+export type ServerProbe = {
+  nodeId: string;
+  role: string;
+  timestamp: string;
+  probe: {
+    recovery?: Array<{ type: string; name: string; status: string; time_remaining?: string; connected_clients?: string; recovery_duration?: string }>;
+    ddnScripts?: Record<string, { available: boolean; down_count?: number; ok_count?: number }>;
+    rgControl?: { available: boolean; onlineNodes?: string[]; resourceGroups?: string[] };
+    ib?: { available: boolean; hcas?: Array<{ name: string; ports: Array<{ port: string; state: string; rate: string }> }> };
+    disks?: { ddnDiskCount?: number };
+    ldlm?: { totalLockCount?: number };
+  };
+};
+
+export async function fetchServerProbes(): Promise<ServerProbe[]> {
+  const res = await authFetch('/api/server-probes');
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.probes || [];
+}

@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY lustre_collect.py lustre_agent.py ./
+COPY lustre_collect.py lustre_agent.py lustre_server_probe.py ./
 
 ENV LUSTRE_NSENTER=1 \
     LUSTRE_NSENTER_TARGET=1 \

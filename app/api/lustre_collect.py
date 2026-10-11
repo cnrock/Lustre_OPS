@@ -257,6 +257,13 @@ def collect_report():
     perf = collect_perf()
     lfs_check = collect_lfs_check()
     lustre_errors = collect_lustre_errors()
+    # 服务端深度探针（MDS/OSS 才有意义）
+    try:
+        import lustre_server_probe
+        server_probe = lustre_server_probe.collect_server_probe(role)
+    except Exception as e:
+        server_probe = None
+        print(f'[PROBE ERROR] {e}')
     # 容器模式下用宿主节点名（DaemonSet 注入 LUSTRE_NODE_NAME），否则用本机主机名
     node_id = os.environ.get('LUSTRE_NODE_NAME') or socket.gethostname()
     return {
@@ -274,6 +281,7 @@ def collect_report():
         'perf': perf,
         'lfs_check': lfs_check,
         'lustre_errors': lustre_errors,
+        'server_probe': server_probe,
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     }
 

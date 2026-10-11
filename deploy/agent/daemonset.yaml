@@ -1,0 +1,98 @@
+# Lustre OPS 采集 Agent — DaemonSet
+#
+# 在每个 Lustre 节点跑一个 Pod，通过 nsenter 进入宿主机命名空间执行
+# lfs/lctl/lsmod/journalctl，采集真实数据并推送到后端。
+#
+# 部署前修改：
+#   - image: 你的镜像仓库地址
+#   - LUSTRE_OPS_URL: 后端 Service 地址
+#   - LUSTRE_OPS_INGEST_TOKEN: 与后端一致（建议改用 Secret）
+#   - nodeSelector / tolerations: 命中你的 Lustre 节点（含被 cordon / GPU 污点节点）
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lustre-ops-ingest
+  namespace: default
+type: Opaque
+stringData:
+  token: "REPLACE_WITH_INGEST_TOKEN"
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: lustre-ops-agent
+  namespace: default
+  labels:
+    app: lustre-ops-agent
+spec:
+  selector:
+    matchLabels:
+      app: lustre-ops-agent
+  template:
+    metadata:
+      labels:
+        app: lustre-ops-agent
+    spec:
+      # 需要进入宿主机命名空间，必须在宿主机 PID/网络下
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      # 容忍被 cordon / GPU / PCIe 等污点节点，保证全覆盖
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: agent
+          image: REPLACE_WITH_REGISTRY/lustre-ops-agent:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: LUSTRE_OPS_URL
+              value: "http://lustre-ops-api.default.svc.cluster.local:3006"
+            - name: LUSTRE_OPS_INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: lustre-ops-ingest
+                  key: token
+            # 常驻循环模式
+            - name: LUSTRE_AGENT_LOOP
+              value: "1"
+            - name: LUSTRE_AGENT_INTERVAL
+              value: "60"
+            # 容器内 nsenter 到宿主机
+            - name: LUSTRE_NSENTER
+              value: "1"
+            - name: LUSTRE_NSENTER_TARGET
+              value: "1"
+            # 宿主节点名（作为 node_id）
+            - name: LUSTRE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # 可选：强制角色（留空自动判定）mgs/mds/oss/client
+            - name: LUSTRE_OPS_NODE_ROLE
+              value: ""
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            capabilities:
+              add: ["SYS_ADMIN", "SYS_PTRACE"]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys

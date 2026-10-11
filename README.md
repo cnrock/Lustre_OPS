@@ -2,7 +2,7 @@
 
 Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监控与诊断控制台。项目将文件系统状态、性能与容量指标、LNet 网络、告警、集群巡检、日志分析和知识库集中在一个 Web 工作台中，降低日常巡检和故障定位的操作成本。
 
-> 当前版本：`v1.2.0`。实现全集群真实监控改造：推送式多节点采集（客户端与服务端全覆盖）、告警规则引擎（含客户端连接故障与内核错误签名检测）、飞书 Webhook 推送，前端全面接入真实后端。生产环境部署前请先阅读[安全说明](SECURITY.md)和[部署指南](docs/deployment.md)。
+> 当前版本：`v1.3.0`。在 v1.2.0 基础上提供容器化部署：采集 Agent 以 DaemonSet 覆盖全部节点（通过 nsenter 采集宿主机真实数据），后端以前后端一体化镜像运行，附带完整 K8s 清单。生产环境部署前请先阅读[安全说明](SECURITY.md)和[部署指南](docs/deployment.md)。
 
 ![Lustre OPS 云控制台总览](app/product-audit/cloud-console-dashboard-final.png)
 
@@ -45,6 +45,12 @@ Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监�
 - 客户端连接故障检测：解析 `lfs check` 报错（transport endpoint shutdown / I/O error），按 target 分别告警。
 - 内核错误签名检测：从内核日志提取 Lustre/LNet 严重错误签名。
 - 每条告警附带可能原因、定位步骤与处理建议；支持飞书 Webhook 推送。
+
+### 容器化部署
+
+- 采集 Agent DaemonSet：每个节点一个 Pod，通过 `nsenter` 进入宿主机命名空间采集真实 Lustre 数据，节点无需安装额外软件。
+- 前后端一体化镜像：单个容器同时提供前端页面与 `/api`。
+- 完整 K8s 清单：Deployment、DaemonSet、PVC、NodePort Service、ConfigMap。
 
 ### AI 日志分析与知识库
 
@@ -146,9 +152,10 @@ python -m unittest api.test_knowledge_overview api.test_ai_response_policy -v
 
 ## 当前边界
 
-- `v1.2.0` 提供推送式多节点采集（客户端 + 服务端），每个节点本机执行只读命令并上报；Agent 的控制面（注册、任务下发、断点续传）仍为简化实现。
+- `v1.3.0` 提供容器化部署（DaemonSet 覆盖全部节点 + 前后端一体化镜像），节点无需安装额外软件；Agent 控制面（注册、任务下发、断点续传）仍为简化实现。
 - 已提供基础登录鉴权与会话令牌；细粒度 RBAC 与审计持久化仍在路线图中。
 - 告警已支持规则引擎、自动闭环与飞书 Webhook；邮件、企业微信等更多通知渠道在路线图中。
+- 容器内以 `privileged + hostPID + nsenter` 采集宿主机数据，需确保集群安全策略允许。
 - 当前知识检索使用本地文档分块和轻量向量索引；生产级 embedding 服务和独立向量数据库仍在路线图中。
 - 任何影响挂载、服务或数据的命令都应由管理员审核后人工执行，不应直接依据模型输出自动操作。
 
@@ -156,17 +163,17 @@ python -m unittest api.test_knowledge_overview api.test_ai_response_policy -v
 
 - Agent 控制面完善：节点注册、心跳管理、任务下发、超时与断点续传。
 - 细粒度 RBAC、登录失败锁定与完整操作审计。
-- 容器化部署（DaemonSet）——已在 v1.3.0 落地。
 - 集群清单与对账——已在 v1.4.0 落地。
 - 服务端深度探针（Recovery / IB / 磁盘 / DDN 脚本）——已在 v1.5.0 落地。
+- Quota 监控（用户 / 组 / 项目配额与 Grace Time）。
 - PostgreSQL + pgvector 或独立向量数据库，接入真实 embedding 与知识质量权重。
 - 告警聚合、更多通知渠道、工单联动和高可用部署。
-- Quota 监控（用户 / 组 / 项目配额与 Grace Time）。
 
 ## 版本历史
 
 - v1.1.0：适配真实环境（修复巡检崩溃、挂载点写死、缺表、巡检无历史），新增登录鉴权、用户管理与巡检历史。
 - v1.2.0：全集群真实监控——推送式多节点采集、告警规则引擎（客户端连接故障 / 内核错误签名）、飞书推送，前端接真实后端。
+- v1.3.0：容器化部署——DaemonSet 全节点采集、前后端一体化镜像、完整 K8s 清单。
 
 ## 许可证
 

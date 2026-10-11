@@ -15,16 +15,33 @@ import socket
 import subprocess
 from datetime import datetime
 
+# 容器（DaemonSet）模式下通过 nsenter 进入宿主机命名空间执行命令：
+#   需要 hostPID + privileged + hostPath /proc /sys /dev /run
+_NSENTER = os.environ.get('LUSTRE_NSENTER', '').lower() in ('1', 'true', 'yes')
+_NSENTER_TARGET = os.environ.get('LUSTRE_NSENTER_TARGET', '1')
+
+
+def _wrap(cmd):
+    if _NSENTER:
+        return f"nsenter -t {_NSENTER_TARGET} -m -u -i -n -p -- sh -c {json.dumps(cmd)}"
+    return cmd
+
 
 def run(cmd, timeout=15):
     try:
         p = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True,
+            _wrap(cmd), shell=True, capture_output=True, text=True,
             timeout=timeout, env={**os.environ, 'LC_ALL': 'C'},
         )
         return p.stdout or '', p.stderr or '', p.returncode
     except Exception as e:
         return '', str(e), 127
+
+
+def read_file(path, timeout=10):
+    """读取宿主机文件（容器模式下经 nsenter）。"""
+    out, _, rc = run(f'cat {path} 2>/dev/null', timeout=timeout)
+    return out if rc == 0 else ''
 
 
 def _first_ip():
@@ -204,20 +221,18 @@ def collect_lustre_errors(hours=2):
 
 
 def collect_perf():
-    """从 /proc/fs/lustre/osc/*/stats 估算读写速率（单次采样，速率需两次差分；
-    这里给出累计字节，供后端差分计算）。"""
+    """从 /proc/fs/lustre/{ost,mdt}/*/stats 读取累计读写字节（供后端差分算速率）。
+
+    容器模式下经 nsenter 读宿主机 /proc，保证数据真实。
+    """
     out = []
-    base = '/proc/fs/lustre'
     for kind in ('ost', 'mdt'):
-        d = os.path.join(base, kind)
-        if not os.path.isdir(d):
+        listing, _, rc = run(f'ls -1 /proc/fs/lustre/{kind} 2>/dev/null')
+        if rc != 0 or not listing.strip():
             continue
-        for name in os.listdir(d):
-            stats = os.path.join(d, name, 'stats')
-            try:
-                with open(stats) as fh:
-                    txt = fh.read()
-            except Exception:
+        for name in listing.split():
+            txt = read_file(f'/proc/fs/lustre/{kind}/{name}/stats')
+            if not txt:
                 continue
             read_bytes = write_bytes = 0
             for line in txt.splitlines():
@@ -242,9 +257,11 @@ def collect_report():
     perf = collect_perf()
     lfs_check = collect_lfs_check()
     lustre_errors = collect_lustre_errors()
+    # 容器模式下用宿主节点名（DaemonSet 注入 LUSTRE_NODE_NAME），否则用本机主机名
+    node_id = os.environ.get('LUSTRE_NODE_NAME') or socket.gethostname()
     return {
-        'node_id': socket.gethostname(),
-        'hostname': socket.gethostname(),
+        'node_id': node_id,
+        'hostname': node_id,
         'ip': _first_ip(),
         'role': role,
         'nid': nids[0] if nids else '',

@@ -22,7 +22,7 @@ import shutil
 from urllib import request as urllib_request
 from urllib import error as urllib_error
 from datetime import datetime, timedelta
-from flask import Flask, Response, jsonify, request, stream_with_context, g
+from flask import Flask, Response, jsonify, request, stream_with_context, g, send_from_directory
 from flask_cors import CORS
 
 import auth as auth_mod
@@ -2258,6 +2258,10 @@ def build_health_check_payload(run_live=True, event_logger=None):
 
 @app.route('/')
 def index():
+    # 一体化容器：若存在前端静态目录，则直接返回前端首页
+    static_dir = os.environ.get('LUSTRE_OPS_STATIC_DIR', '')
+    if static_dir and os.path.exists(os.path.join(static_dir, 'index.html')):
+        return send_from_directory(static_dir, 'index.html')
     return jsonify({
         'service': 'lustre-ops-api-v2',
         'status': 'running',
@@ -2282,6 +2286,29 @@ def index():
             {'path': '/api/alerts/history?limit=100', 'desc': '历史告警'},
         ]
     })
+
+
+def _serve_spa(path_prefix=''):
+    """SPA 静态托管：找不到文件时退回 index.html（支持前端路由）。
+
+    兼容构建 base=/lustre-ops/：同时服务 / 与 /lustre-ops/ 前缀。
+    """
+    static_dir = os.environ.get('LUSTRE_OPS_STATIC_DIR', '')
+    if not static_dir or not os.path.isdir(static_dir):
+        return jsonify({'error': 'not found'}), 404
+    rel = request.path
+    if path_prefix and rel.startswith(path_prefix):
+        rel = rel[len(path_prefix):]
+    rel = rel.lstrip('/')
+    if rel and os.path.isfile(os.path.join(static_dir, rel)):
+        return send_from_directory(static_dir, rel)
+    return send_from_directory(static_dir, 'index.html')
+
+
+@app.route('/lustre-ops/')
+@app.route('/lustre-ops/<path:subpath>')
+def spa_lustre_ops(subpath=None):
+    return _serve_spa('/lustre-ops')
 
 
 @app.route('/api/auth/login', methods=['POST'])

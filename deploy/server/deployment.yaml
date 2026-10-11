@@ -1,0 +1,126 @@
+# Lustre OPS 后端一体化部署（Flask API + 前端静态资源）
+#
+# 单容器同时提供前端页面与 /api。部署在一个能访问 Lustre 的节点上，
+# 通过 hostPID + privileged + nsenter 让后端节点也能自采集本机 Lustre 数据。
+#
+# 部署前修改：
+#   - image: 你的镜像仓库地址
+#   - LUSTRE_CLIENT_MOUNT: 客户端挂载点（本环境为 /lustre）
+#   - Secret: LUSTRE_INGEST_TOKEN / LUSTRE_ADMIN_PASS
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lustre-ops-secret
+  namespace: default
+type: Opaque
+stringData:
+  ingestToken: "REPLACE_WITH_INGEST_TOKEN"
+  adminPass: "REPLACE_WITH_STRONG_PASSWORD"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lustre-ops-data
+  namespace: default
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName: <你的存储类>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lustre-ops-api
+  namespace: default
+  labels:
+    app: lustre-ops-api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # SQLite 单写，避免多副本争用
+  selector:
+    matchLabels:
+      app: lustre-ops-api
+  template:
+    metadata:
+      labels:
+        app: lustre-ops-api
+    spec:
+      hostPID: true         # 自采集需进入宿主机 PID 命名空间
+      nodeSelector:
+        kubernetes.io/hostname: "lustre-client-node"   # 改成一个能访问 Lustre 的节点
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: api
+          image: REPLACE_WITH_REGISTRY/lustre-ops:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3006
+              protocol: TCP
+          env:
+            - name: LUSTRE_CLIENT_MOUNT
+              value: "/lustre"
+            - name: LUSTRE_DB
+              value: "/data/lustre.db"
+            - name: LUSTRE_SELF_COLLECT
+              value: "1"
+            - name: LUSTRE_COLLECT_INTERVAL
+              value: "60"
+            - name: LUSTRE_NSENTER
+              value: "1"
+            - name: LUSTRE_NSENTER_TARGET
+              value: "1"
+            - name: LUSTRE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: LUSTRE_INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: lustre-ops-secret
+                  key: ingestToken
+            - name: LUSTRE_ADMIN_USER
+              value: "admin"
+            - name: LUSTRE_ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: lustre-ops-secret
+                  key: adminPass
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: lustre-ops-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lustre-ops-api
+  namespace: default
+  labels:
+    app: lustre-ops-api
+spec:
+  type: NodePort
+  selector:
+    app: lustre-ops-api
+  ports:
+    - name: http
+      port: 3006
+      targetPort: 3006
+      nodePort: 32396        # 与现有公网映射一致
+      protocol: TCP

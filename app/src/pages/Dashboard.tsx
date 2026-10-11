@@ -52,6 +52,9 @@ type HealthResponse = {
 
 type SummaryResponse = {
  version?: string
+ clientVersion?: string
+ serverVersion?: string
+ versionSource?: string
  filesystem?: string
  mdtCount?: number
  ostCount?: number
@@ -456,7 +459,11 @@ export default function Dashboard() {
  </div>
  <div>
  <p className="text-[12px] text-[hsl(var(--muted-foreground))]">Lustre 版本</p>
- <p className="mt-1 text-[13px] font-medium text-foreground">{apiSummary?.version || '2.15.x'}</p>
+ <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px] font-medium text-foreground">
+ <span>服务端 {apiSummary?.serverVersion || '待上报'}</span>
+ <span className="text-[hsl(var(--muted-foreground))]">·</span>
+ <span>客户端 {apiSummary?.clientVersion || '待上报'}</span>
+ </div>
  </div>
  <div>
  <p className="text-[12px] text-[hsl(var(--muted-foreground))]">最近更新</p>

@@ -2,6 +2,23 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## v1.9.0 - 2026-10-11
+
+### 新增
+
+- **客户端部署适配**：新增 `serverMode: client-only`，服务端不部署 agent 时不再将其误报为「应报未报」。
+- Target DOWN / Recovery 改由客户端 `check_servers.pl` + `lfs check` 间接判定。
+- **真实版本探测**：Lustre 客户端版本由 `lctl get_param -n version` 真实读取；总览同时展示服务端与客户端版本。
+- 服务端版本优先取服务端 agent 上报值，其次清单 `serverVersion` 声明。
+
+### 变更
+
+- 部署清单改用官方镜像 `cnrock/lustre-ops` / `cnrock/lustre-ops-agent`。
+- 服务端探针无数据时前端优雅降级（给出说明而非报错）。
+- 重写部署指南：客户端 / 全量两种模式 + 他人复现步骤。
+
+详见 `docs/releases/v1.9.0.md`。
+
 ## v1.8.0 - 2026-10-11
 
 ### 新增

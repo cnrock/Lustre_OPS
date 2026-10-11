@@ -61,9 +61,78 @@ def _nids():
     return [n.strip() for n in (out or '').splitlines() if n.strip()]
 
 
+def _parse_lctl_version(text):
+    """解析 `lctl get_param -n version` 的多行输出为 dict。
+
+    典型（DDN）输出：
+        lustre: 2.14.0_ddn262
+        kernel: patchless_client
+        build:  v2_14_0_ddn262-g...
+    """
+    info = {}
+    for line in (text or '').splitlines():
+        if ':' in line:
+            k, v = line.split(':', 1)
+            k, v = k.strip().lower(), v.strip()
+            if k and v and k not in info:
+                info[k] = v
+    return info
+
+
 def _lustre_version():
+    """客户端 Lustre 版本（真实探测，不再使用硬编码）。"""
     out, _, _ = run("lctl get_param -n version 2>/dev/null || cat /sys/module/lustre/version 2>/dev/null")
-    return (out or '').strip()
+    raw = (out or '').strip()
+    info = _parse_lctl_version(raw)
+    return info.get('lustre') or info.get('build') or raw
+
+
+def collect_versions():
+    """采集 Lustre 版本信息。
+
+    - client: 本机客户端模块版本（`lctl get_param -n version`），客户端部署下始终可得。
+    - server: 服务端（MGS/MDS/OSS）版本。客户端部署环境下通常不可直接读取，
+      由后端用服务端 agent 上报的 lustre_version 回填；此处尽力尝试直接读取。
+    返回 {'client': str, 'clientDetail': dict, 'server': str|None}。
+    """
+    raw, _, _ = run("lctl get_param -n version 2>/dev/null || cat /sys/module/lustre/version 2>/dev/null")
+    raw = (raw or '').strip()
+    detail = _parse_lctl_version(raw)
+    client = detail.get('lustre') or detail.get('build') or raw
+    # 少数环境可从客户端读到 MGS 版本参数；读不到则为 None（由后端回填）
+    srv_out, _, _ = run("lctl get_param -n mgs.MGS.*.version 2>/dev/null", timeout=8)
+    server = (srv_out or '').strip().splitlines()[0].strip() if (srv_out or '').strip() else None
+    return {'client': client, 'clientDetail': detail, 'server': server}
+
+
+def collect_check_servers():
+    """在客户端执行 DDN `check_servers.pl`（手册：可在挂载 Lustre 的 Client 上执行）。
+
+    在无服务端 agent 时，用它判定 MDT/OST 的 OK/DOWN，从而覆盖
+    “服务端 target 是否挂掉”这一最关键的判断。
+    返回 {'available', 'down_count', 'ok_count', 'downs': [...], 'raw'}。
+    """
+    candidates = [
+        'check_servers.pl -v',
+        '/opt/ddn/bin/check_servers.pl -v',
+        '/work/os_config/opt/ddn/bin/check_servers.pl -v',
+    ]
+    out = ''
+    for cmd in candidates:
+        stdout, _, rc = run(cmd, timeout=30)
+        if (stdout or '').strip():
+            out = stdout
+            break
+    if not out.strip():
+        return {'available': False, 'down_count': 0, 'ok_count': 0, 'downs': [], 'raw': ''}
+    downs = []
+    for line in out.splitlines():
+        if re.search(r'\bDOWN\b', line, re.I):
+            downs.append(line.strip()[:200])
+    down_count = len(re.findall(r'\bDOWN\b', out, re.I))
+    ok_count = len(re.findall(r'\bOK\b', out, re.I))
+    return {'available': True, 'down_count': down_count, 'ok_count': ok_count,
+            'downs': downs[:50], 'raw': out[-2000:]}
 
 
 def _kernel_version():
@@ -257,6 +326,9 @@ def collect_report():
     perf = collect_perf()
     lfs_check = collect_lfs_check()
     lustre_errors = collect_lustre_errors()
+    versions = collect_versions()
+    # check_servers.pl 在客户端可执行，用于无服务端 agent 时判定 target DOWN
+    check_servers = collect_check_servers() if role == 'client' else None
     # 服务端深度探针（MDS/OSS 才有意义）
     try:
         import lustre_server_probe
@@ -273,8 +345,10 @@ def collect_report():
         'role': role,
         'nid': nids[0] if nids else '',
         'nids': nids,
-        'lustre_version': _lustre_version(),
+        'lustre_version': versions.get('client') or _lustre_version(),
         'kernel_version': _kernel_version(),
+        'versions': versions,
+        'check_servers': check_servers,
         'services': _services(role),
         'target_mounts': target_mounts,
         'osts': osts,

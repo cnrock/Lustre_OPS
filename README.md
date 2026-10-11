@@ -2,7 +2,7 @@
 
 Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监控与诊断控制台。项目将文件系统状态、性能与容量指标、LNet 网络、告警、集群巡检、日志分析和知识库集中在一个 Web 工作台中，降低日常巡检和故障定位的操作成本。
 
-> 当前版本：`v1.8.0`。界面改版覆盖全部模块：在 v1.7.0 基础上将告警、告警详情、巡检、文件系统、日志、设置、报表、容量、性能、网络等页面统一到 Apple 风格设计系统；新增应用版本单一来源与界面版本展示；README 版本历史改为倒序（最新在上）。生产环境部署前请先阅读[安全说明](SECURITY.md)和[部署指南](docs/deployment.md)。
+> 当前版本：`v1.9.0`。客户端部署适配 + 真实版本探测 + 简化部署。支持仅客户端部署（服务端经客户端间接监控，消除误报），Lustre 客户端/服务端版本改为真实探测与展示，部署文档重写并给出他人复现步骤。生产环境部署前请先阅读[安全说明](SECURITY.md)和[部署指南](docs/deployment.md)。
 
 ![Lustre OPS 云控制台总览](app/product-audit/cloud-console-dashboard-final.png)
 
@@ -80,6 +80,22 @@ Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监�
 - 将全部页面（告警、告警详情、巡检、文件系统、日志、设置、报表、容量、性能、网络）统一到 v1.7 的 Apple 风格设计令牌。
 - 新增应用版本单一来源 `src/lib/version.ts`，侧边导航与登录页统一展示当前版本。
 
+### 客户端部署适配
+
+- 新增 `serverMode: client-only`：服务端不部署 agent 时，不再将清单中的服务端误报为“应报未报”。
+- Target DOWN / Recovery 改由客户端 `check_servers.pl` + `lfs check` 间接判定，客户端部署也能覆盖最关键故障。
+- 服务端探针（IB/磁盘/HA）无数据时前端优雅降级，给出说明而非报错。
+
+### 真实版本探测
+
+- Lustre 客户端版本由 `lctl get_param -n version` 真实探测（默认展示客户端与服务端两个版本）。
+- 服务端版本优先取服务端 agent 上报值，其次清单 `serverVersion` 声明。
+
+### 部署简化
+
+- 部署清单改用官方镜像 `cnrock/lustre-ops` / `cnrock/lustre-ops-agent`。
+- 重写部署指南，新增客户端/全量两种模式与“他人如何复现”步骤。
+
 ### AI 日志分析与知识库
 
 - 采集并筛选 Lustre、内核和系统日志，默认聚焦 `WARN`、`ERROR`、`FATAL` 等异常信号。
@@ -105,11 +121,11 @@ Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监�
 
 ## 界面预览
 
-![总览 · 集群态势](docs/screenshots/v1.8-dashboard.png)
+![总览 · 集群态势（真实版本：服务端/客户端）](docs/screenshots/v1.9-dashboard.png)
 
-![告警管理](docs/screenshots/v1.8-alerts.png)
+![告警管理](docs/screenshots/v1.9-alerts.png)
 
-![容量管理](docs/screenshots/v1.8-capacity.png)
+![容量管理](docs/screenshots/v1.9-capacity.png)
 
 ## 技术架构
 
@@ -188,30 +204,30 @@ python -m unittest api.test_knowledge_overview api.test_ai_response_policy -v
 
 ## 当前边界
 
-- `v1.8.0` 为全模块界面统一 + 版本号单一来源；功能与接口不变。
+- 客户端部署模式下，服务端硬件层指标（IB/磁盘/HA）不可得，需服务端 agent 才能采集。
+- Target OK/DOWN 与 Recovery 在客户端模式经由 `check_servers.pl`/`lfs check` 判定。
 - 自动探测 Lustre 客户端挂载点（`LUSTRE_CLIENT_MOUNT` 首选，未挂载回退 `findmnt -t lustre`）。
-- 服务端深度探针依赖节点上存在 `check_servers.pl` / `get_ost.pl` / `rg_control` / `ibstat` / `lsscsi` 等命令；缺失时对应项自动标记为不可用。
 - Agent 控制面（注册、任务下发、断点续传）仍为简化实现。
 - 已提供基础登录鉴权与会话令牌；细粒度 RBAC 与审计持久化仍在路线图中。
 - 告警已支持规则引擎、自动闭环与飞书 Webhook；邮件、企业微信等更多通知渠道在路线图中。
-- 清单需人工维护（`deploy/inventory.json` / ConfigMap）；自动发现与拓扑感知在路线图中。
 - 容器内以 `privileged + hostPID + nsenter` 采集宿主机数据，需确保集群安全策略允许。
-- 任何影响挂载、服务或数据的命令都应由管理员审核后人工执行，不应直接依据模型输出自动操作。
+- 任何影响挂载、服务或数据的命令都应由管理员审核后人工执行。
 
 ## 路线图
 
-- Agent 控制面完善：节点注册、心跳管理、任务下发、超时与断点续传。
+- 与 Prometheus / Alertmanager / Grafana / VictoriaMetrics 集成（指标暴露与看板联动）。
+- 客户端部署下的服务端指标补采（可选 SSH 或服务端 agent）。
 - 细粒度 RBAC、登录失败锁定与完整操作审计。
-- 客户端部署适配（服务端无 agent 模式）。
 - Quota 监控（用户 / 组 / 项目配额与 Grace Time）。
 - 清单自动发现与拓扑感知。
-- Prometheus / Grafana 集成，复用现有监控栈。
 - 移动端适配与可访问性增强。
-- PostgreSQL + pgvector 或独立向量数据库，接入真实 embedding 与知识质量权重。
-- 告警聚合、更多通知渠道、工单联动和高可用部署。
+- PostgreSQL + pgvector 或独立向量数据库，接入真实 embedding。
+
 
 ## 版本历史
 
+- v1.9.0：客户端部署适配（serverMode=client-only，消除服务端误报）、真实版本探测（服务端/客户端版本）、官方镜像与简化部署文档。
+- v1.8.0：全模块界面统一到 Apple 风格；版本号单一来源与界面展示；README 版本历史倒序。
 - v1.7.0：界面改版（Apple 风格）——重构设计系统与导航/登录/总览观感。
 - v1.6.0：修复客户端挂载点误判——自动探测真实 Lustre 挂载点，恢复容量/OST/性能数据。
 - v1.5.0：服务端深度探针——Recovery / check_servers.pl / IB HCA / DDN 磁盘数 / LDLM，含告警与处理指引。

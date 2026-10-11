@@ -58,7 +58,10 @@ export async function fetchSummary() {
     : osts.reduce((sum: number, item: any) => sum + (item.used_bytes || 0), 0) / 1024 ** 3;
 
   return {
-    version: '2.15.4',
+    version: status?.server_version || status?.client_version || '',
+    clientVersion: status?.client_version || status?.lustre_version || '',
+    serverVersion: status?.server_version || '',
+    versionSource: status?.server_version_source || '',
     filesystem: summary?.fs_name || 'lustre',
     mdtCount: mdt ? 1 : 0,
     ostCount: osts.length,

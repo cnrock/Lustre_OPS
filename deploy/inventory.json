@@ -1,5 +1,8 @@
 {
   "cluster": "lustrefs",
+  "serverMode": "client-only",
+  "serverVersion": "2.14.0_ddn262",
+  "clientVersionNote": "客户端版本由 agent/后端在客户端上真实探测（lctl get_param -n version）",
   "networks": {
     "management": {"cidr": "192.0.2.0/24", "gateway": "192.0.2.254", "purpose": "管理网"},
     "bmc": {"cidr": "198.51.100.0/24", "gateway": "198.51.100.254", "purpose": "BMC/带外"},

@@ -2903,16 +2903,52 @@ def knowledge_chunk_feedback(chunk_id):
         return jsonify({'ok': False, 'message': f'反馈写入失败: {e}'}), 500
 
 
+def cluster_server_version():
+    """确定集群服务端（MGS/MDS/OSS）Lustre 版本。
+
+    优先级：
+      1) 已上报的服务端 agent 的 lustre_version（真实服务端值）；
+      2) 清单中显式声明的 serverVersion；
+      3) 客户端本地探针（少数环境可从 mgs 参数读到）。
+    返回 (version, source)。客户端部署（无服务端 agent）时通常返回清单声明值。
+    """
+    rows = db_query(
+        "SELECT node_id, lustre_version FROM lustre_nodes "
+        "WHERE role IN ('mgs','mds','oss','mixed') AND lustre_version IS NOT NULL AND lustre_version != '' "
+        "ORDER BY last_heartbeat DESC"
+    )
+    for r in rows:
+        if r.get('lustre_version'):
+            return r['lustre_version'], f"agent:{r.get('node_id')}"
+    inv = load_inventory() or {}
+    declared = inv.get('serverVersion')
+    if declared:
+        return declared, 'inventory'
+    try:
+        info = lustre_collect.collect_versions()
+        if info.get('server'):
+            return info['server'], 'client-probe'
+    except Exception:
+        pass
+    return '', ''
+
+
 @app.route('/api/lustre/status')
 def lustre_status():
     stdout, stderr, rc = run_cmd('lfs check servers')
     is_healthy = rc == 0
     mount = detect_lustre_mount()
+    vinfo = collect_versions()
+    server_ver, server_src = cluster_server_version()
     return jsonify({
         'healthy': is_healthy,
         'servers_output': stdout if stdout else stderr,
         'client_mount': mount,
-        'mounted': os.path.ismount(mount)
+        'mounted': os.path.ismount(mount),
+        'lustre_version': vinfo.get('client') or '',
+        'client_version': vinfo.get('client') or '',
+        'server_version': server_ver or '',
+        'server_version_source': server_src or '',
     })
 
 
@@ -3394,7 +3430,11 @@ def _local_collect_loop(interval):
             try:
                 inv = load_inventory()
                 expected = [(s.get('name'), s.get('role')) for s in (inv or {}).get('servers', [])]
-                n = alert_engine.check_node_liveness(max_age_seconds=max_age, expected_servers=expected)
+                # server_mode: client-only 表示服务端未部署 agent（经客户端间接监控）
+                smode = (os.environ.get('LUSTRE_SERVER_MODE')
+                         or (inv or {}).get('serverMode') or 'agent')
+                n = alert_engine.check_node_liveness(
+                    max_age_seconds=max_age, expected_servers=expected, server_mode=smode)
                 if n:
                     print(f'[WATCHDOG] 触发 {n} 条节点存活告警')
             except Exception as e:

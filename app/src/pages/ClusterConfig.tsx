@@ -1371,8 +1371,13 @@ function ServerProbePanel() {
  <div className="py-10 text-center text-sm text-[hsl(var(--muted-foreground))] ">加载服务端探针…</div>
  )}
  {!loading && probes.length === 0 && (
- <div className="rounded-xl border border-dashed border-[hsl(var(--border))] py-10 text-center text-sm text-[hsl(var(--muted-foreground))] ">
- 暂无服务端探针数据（仅 MDS/OSS 节点采集此项）
+ <div className="rounded-xl border border-dashed border-[hsl(var(--border))] px-6 py-10 text-center text-sm text-[hsl(var(--muted-foreground))] ">
+ <p>暂无服务端探针数据</p>
+ <p className="mt-2 text-[12px] leading-5 opacity-80">
+ 服务端深度探针（Recovery / IB HCA / DDN 磁盘数 / Pacemaker HA）需在服务端节点部署采集 agent。
+ 若采用客户端部署模式（仅客户端装 agent），此处将保持为空；
+ 服务端 target 的 OK/DOWN 与 Recovery 状态改由客户端 <code className="rounded bg-[hsl(var(--muted))] px-1 py-0.5">check_servers.pl</code> / <code className="rounded bg-[hsl(var(--muted))] px-1 py-0.5">lfs check</code> 间接判定，见「告警管理」。
+ </p>
  </div>
  )}
 

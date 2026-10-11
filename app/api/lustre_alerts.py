@@ -296,13 +296,16 @@ def _notify(level, title, message):
     return False
 
 
-def check_node_liveness(max_age_seconds=300, expected_servers=None):
+def check_node_liveness(max_age_seconds=300, expected_servers=None, server_mode='agent'):
     """节点存活看门狗：
 
     - 已注册节点心跳超时 -> offline 告警
     - 清单中应有但从未上报的服务端 -> “应报未报”告警
 
     expected_servers: [(name, role)] 列表（来自 deployment/inventory.json）。
+    server_mode: 'agent' 表示服务端部署了 agent（应上报）；
+                 'client-only' 表示服务端未部署 agent（经客户端间接监控），
+                 此时对服务端**不再报“应报未报”**，避免误报。
     返回新触发的告警数。
     """
     rule_offline = {'id': 'rule-node-stale', 'name': '节点心跳超时（疑似掉线）', 'severity': 'critical'}
@@ -338,19 +341,26 @@ def check_node_liveness(max_age_seconds=300, expected_servers=None):
         else:
             _auto_resolve(rule_offline['id'], nid)
 
-    # 应报未报（清单里的服务端从未上报）
-    for item in (expected_servers or []):
-        name = item[0] if isinstance(item, (list, tuple)) else item.get('name')
-        role = item[1] if isinstance(item, (list, tuple)) and len(item) > 1 else (item.get('role') if isinstance(item, dict) else '')
-        if name and name not in seen_names:
-            if not _active_alert_exists(rule_missing['id'], name):
-                detail = (f"清单中的服务端 {name}（{role}）从未上报采集数据。\n\n"
-                          "可能原因：该节点未部署 agent、agent 无法连后端、或道选范围（nodeSelector）未覆盖。\n"
-                          f"定位步骤：\n  1. 确认 DaemonSet 是否调度到该节点：kubectl get pod -o wide | grep {name}\n"
-                          "  2. 检查 agent 日志：kubectl logs <pod>\n  3. 确认 token 与后端地址一致")
-                _create_alert(rule_missing, name, rule_missing['name'], detail)
-                _notify('critical', rule_missing['name'], detail)
-                fired += 1
+    # 应报未报（清单里的服务端从未上报）——仅当服务端部署了 agent 时才判定
+    if server_mode != 'client-only':
+        for item in (expected_servers or []):
+            name = item[0] if isinstance(item, (list, tuple)) else item.get('name')
+            role = item[1] if isinstance(item, (list, tuple)) and len(item) > 1 else (item.get('role') if isinstance(item, dict) else '')
+            if name and name not in seen_names:
+                if not _active_alert_exists(rule_missing['id'], name):
+                    detail = (f"清单中的服务端 {name}（{role}）从未上报采集数据。\n\n"
+                              "可能原因：该节点未部署 agent、agent 无法连后端、或调度范围（nodeSelector）未覆盖。\n"
+                              f"定位步骤：\n  1. 确认 DaemonSet 是否调度到该节点：kubectl get pod -o wide | grep {name}\n"
+                              "  2. 检查 agent 日志：kubectl logs <pod>\n  3. 确认 token 与后端地址一致")
+                    _create_alert(rule_missing, name, rule_missing['name'], detail)
+                    _notify('critical', rule_missing['name'], detail)
+                    fired += 1
+    else:
+        # 服务端为间接监控：清理可能的“应报未报”误报
+        for item in (expected_servers or []):
+            name = item[0] if isinstance(item, (list, tuple)) else item.get('name')
+            if name:
+                _auto_resolve(rule_missing['id'], name)
     return fired
 
 
@@ -384,6 +394,16 @@ def evaluate(report):
         observations.append(('kernel_error', f'{node_id}:{sig}', 1, f'{node_id} 命中错误签名：{sig}'))
     if not sig_list:
         observations.append(('kernel_error', f'node:{node_id}', 0, f'节点 {node_id} 无严重错误签名'))
+
+    # 客户端 check_servers.pl：无服务端 agent 时，用它判定 MDT/OST 的 OK/DOWN
+    cs = report.get('check_servers') or {}
+    if cs.get('available'):
+        downs = cs.get('downs') or []
+        for d in downs:
+            observations.append(('target_down', f'check_servers:{d[:60]}', 1,
+                                 f"check_servers.pl 报 DOWN：{d}"))
+        if not downs:
+            observations.append(('target_down', f'node:{node_id}', 0, f'节点 {node_id} check_servers.pl 全部 OK'))
 
     # 服务端深度探针（仅 MDS/OSS）
     sp = report.get('server_probe') or {}

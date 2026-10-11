@@ -320,5 +320,6 @@ def is_public_path(path):
         '/api/auth/login',
         '/api/health',
         '/api/version',
+        '/api/ingest',  # 节点采集上报，用 X-Ingest-Token 单独校验
     )
     return any(path == p or path.startswith(p + '/') for p in public_prefixes)

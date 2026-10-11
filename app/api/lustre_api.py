@@ -11,10 +11,12 @@ import sqlite3
 import subprocess
 import json
 import re
+import time
 import queue
 import threading
 import uuid
 import hashlib
+import hmac
 import math
 import shutil
 from urllib import request as urllib_request
@@ -24,6 +26,8 @@ from flask import Flask, Response, jsonify, request, stream_with_context, g
 from flask_cors import CORS
 
 import auth as auth_mod
+import lustre_alerts as alert_engine
+import lustre_collect
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
@@ -59,6 +63,13 @@ def ensure_metrics_tables():
                 timestamp TEXT NOT NULL, node_id TEXT, nid TEXT, status TEXT, role TEXT
             )""")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_node_metrics_ts ON node_metrics(timestamp)")
+        # 节点注册表：多节点采集后每个节点的角色/服务/版本/心跳
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS lustre_nodes (
+                node_id TEXT PRIMARY KEY, hostname TEXT, ip TEXT, role TEXT, nid TEXT,
+                lustre_version TEXT, kernel_version TEXT, services_json TEXT,
+                target_mounts_json TEXT, last_heartbeat TEXT, status TEXT DEFAULT 'online'
+            )""")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS alerts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, level TEXT,
@@ -125,6 +136,8 @@ LOG_STATE_PATH = '/opt/lustre-data/log_analysis_state.json'
 
 # 巡检/指标所需表（必须在 DB_PATH 定义之后调用）
 ensure_metrics_tables()
+# 告警规则/渠道/事件表 + 默认规则
+alert_engine.init_alert_tables()
 AGENT_ID = 'lustre-log-analyzer'
 AGENT_MEMORY_DIR = f'/opt/lustre-data/agent-memory/{AGENT_ID}'
 AGENT_SESSIONS_DIR = os.path.join(AGENT_MEMORY_DIR, 'sessions')
@@ -3222,6 +3235,225 @@ def capacity_summary():
     return jsonify({'timestamp': rows[0]['timestamp'] if rows else None, 'summary': summary})
 
 
+@app.route('/api/ingest/report', methods=['POST'])
+def ingest_report():
+    """接收节点采集 agent 上报（用 X-Ingest-Token 校验，不走登录会话）。"""
+    expected = os.environ.get('LUSTRE_INGEST_TOKEN', '')
+    if expected:
+        got = request.headers.get('X-Ingest-Token') or ''
+        if not hmac.compare_digest(got, expected):
+            return jsonify({'ok': False, 'error': '采集令牌无效'}), 401
+    report = request.get_json(silent=True) or {}
+    if not report.get('node_id'):
+        return jsonify({'ok': False, 'error': '缺少 node_id'}), 400
+    ok, err = store_report(report)
+    if not ok:
+        return jsonify({'ok': False, 'error': err}), 500
+    fired = []
+    try:
+        fired = alert_engine.evaluate(report)
+    except Exception as e:
+        print(f'[ALERT ENGINE ERROR] {e}')
+    return jsonify({'ok': True, 'node_id': report.get('node_id'), 'alerts_fired': len(fired)})
+
+
+def store_report(report):
+    """把一个采集报告写入各指标表（供 ingest 路由与本机自采集线程复用）。"""
+    ts = report.get('timestamp') or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute(
+            'INSERT INTO node_metrics (timestamp, node_id, nid, status, role) VALUES (?,?,?,?,?)',
+            (ts, report.get('node_id'), report.get('nid') or '', 'online', report.get('role') or 'client'))
+        for o in report.get('osts', []):
+            cur.execute(
+                """INSERT INTO ost_metrics
+                   (timestamp,name,uuid,type,total_bytes,used_bytes,available_bytes,usage_percent,mount,fs_name)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (ts, o.get('name'), o.get('uuid'), o.get('type'), o.get('total_bytes'),
+                 o.get('used_bytes'), o.get('available_bytes'), o.get('usage_percent'),
+                 o.get('mount'), o.get('fs_name')))
+        for p in report.get('perf', []):
+            cur.execute(
+                'INSERT INTO perf_rates (timestamp, ost_name, read_mbps, write_mbps, read_iops, write_iops)'
+                ' VALUES (?,?,?,?,?,?)',
+                (ts, f"{report.get('node_id')}:{p.get('ost_name')}",
+                 p.get('read_bytes_total'), p.get('write_bytes_total'), 0, 0))
+        cur.execute(
+            """INSERT INTO lustre_nodes
+               (node_id, hostname, ip, role, nid, lustre_version, kernel_version,
+                services_json, target_mounts_json, last_heartbeat, status)
+               VALUES (?,?,?,?,?,?,?,?,?,?, 'online')
+               ON CONFLICT(node_id) DO UPDATE SET
+                 hostname=excluded.hostname, ip=excluded.ip, role=excluded.role, nid=excluded.nid,
+                 lustre_version=excluded.lustre_version, kernel_version=excluded.kernel_version,
+                 services_json=excluded.services_json, target_mounts_json=excluded.target_mounts_json,
+                 last_heartbeat=excluded.last_heartbeat, status='online'""",
+            (report.get('node_id'), report.get('hostname'), report.get('ip'), report.get('role'),
+             report.get('nid') or '', report.get('lustre_version') or '',
+             report.get('kernel_version') or '',
+             json.dumps(report.get('services') or [], ensure_ascii=False),
+             json.dumps(report.get('target_mounts') or [], ensure_ascii=False), ts))
+        conn.commit()
+        conn.close()
+        return True, None
+    except Exception as e:
+        print(f'[INGEST ERROR] {e}')
+        return False, str(e)
+
+
+def _local_collect_loop(interval):
+    """本机自采集后台线程：定时采集并写库 + 评估告警。"""
+    while True:
+        try:
+            report = lustre_collect.collect_report()
+            ok, err = store_report(report)
+            if ok:
+                try:
+                    fired = alert_engine.evaluate(report)
+                    if fired:
+                        print(f'[SELF-COLLECT] {report.get("node_id")} 触发 {len(fired)} 条告警')
+                except Exception as e:
+                    print(f'[SELF-COLLECT ALERT ERROR] {e}')
+        except Exception as e:
+            print(f'[SELF-COLLECT ERROR] {e}')
+        time.sleep(interval)
+
+
+def start_self_collector():
+    """启动本机自采集（可用 LUSTRE_SELF_COLLECT=0 关闭，LUSTRE_COLLECT_INTERVAL 秒控制周期）。"""
+    if os.environ.get('LUSTRE_SELF_COLLECT', '1') == '0':
+        print('[SELF-COLLECT] 已关闭')
+        return
+    interval = int(os.environ.get('LUSTRE_COLLECT_INTERVAL', '60'))
+    t = threading.Thread(target=_local_collect_loop, args=(interval,), daemon=True)
+    t.start()
+    print(f'[SELF-COLLECT] 已启动，间隔 {interval}s')
+
+
+@app.route('/api/nodes', methods=['GET'])
+def nodes_registry():
+    """所有已注册节点（客户端+服务端），供配置页/拓扑展示。"""
+    rows = db_query('SELECT * FROM lustre_nodes ORDER BY role, node_id')
+    out = []
+    for r in rows:
+        try:
+            services = json.loads(r.get('services_json') or '[]')
+        except Exception:
+            services = []
+        try:
+            mounts = json.loads(r.get('target_mounts_json') or '[]')
+        except Exception:
+            mounts = []
+        out.append({
+            'id': r['node_id'], 'name': r['node_id'], 'hostname': r['hostname'],
+            'ip': r['ip'], 'role': r['role'], 'nid': r['nid'],
+            'lustreVersion': r['lustre_version'], 'kernelVersion': r['kernel_version'],
+            'services': services, 'targetMounts': mounts,
+            'lastHeartbeat': r['last_heartbeat'], 'status': r['status'],
+        })
+    return jsonify({'count': len(out), 'nodes': out})
+
+
+@app.route('/api/alert-rules', methods=['GET'])
+def alert_rules_list():
+    return jsonify({'rules': alert_engine.list_rules()})
+
+
+@app.route('/api/alert-rules', methods=['POST'])
+@require_role('admin')
+def alert_rules_upsert():
+    body = request.get_json(silent=True) or {}
+    if not body.get('id'):
+        body['id'] = f"rule-{uuid.uuid4().hex[:8]}"
+    alert_engine.upsert_rule(body)
+    return jsonify({'ok': True, 'rule': body})
+
+
+@app.route('/api/alert-rules/<rule_id>', methods=['DELETE'])
+@require_role('admin')
+def alert_rules_delete(rule_id):
+    alert_engine.delete_rule(rule_id)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/notification-channels', methods=['GET'])
+def notification_channels_get():
+    ch = alert_engine.get_channels()
+    # 不返回完整 webhook 地址（含密钥），只回是否已配置
+    for t, cfg in ch.items():
+        url = cfg.get('webhookUrl') or cfg.get('webhook_url') or ''
+        cfg['webhookConfigured'] = bool(url)
+        if url:
+            cfg['webhookMasked'] = url[:38] + '...'
+            cfg.pop('webhookUrl', None)
+            cfg.pop('webhook_url', None)
+    return jsonify({'channels': ch})
+
+
+@app.route('/api/notification-channels/<channel_type>', methods=['POST'])
+@require_role('admin')
+def notification_channels_set(channel_type):
+    body = request.get_json(silent=True) or {}
+    enabled = bool(body.get('enabled'))
+    config = {k: v for k, v in body.items() if k != 'enabled'}
+    alert_engine.set_channel(channel_type, enabled, config)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/notify/test', methods=['POST'])
+@require_role('engineer')
+def notify_test():
+    """发送一条测试通知到指定渠道（默认飞书）。"""
+    body = request.get_json(silent=True) or {}
+    channel = body.get('channel') or 'feishu'
+    if channel == 'feishu':
+        ok = alert_engine._notify('info', '通知通道测试', request.remote_addr or '本机')
+        return jsonify({'ok': ok, 'message': '已发送' if ok else '发送失败（未启用或 webhook 未配置）'})
+    return jsonify({'ok': False, 'message': '不支持的渠道'}), 400
+
+
+@app.route('/api/cluster/config')
+def cluster_config():
+    """实时文件系统配置（默认条带、挂载、关键参数），供配置页展示。"""
+    stripe, _, _ = run_cmd(f'lfs getstripe -d {LUSTRE_CLIENT} 2>/dev/null || true', timeout=15)
+    fsname, _, _ = run_cmd("lfs getname -n 2>/dev/null || true", timeout=10)
+    version, _, _ = run_cmd('lctl get_param -n version 2>/dev/null', timeout=10)
+
+    # 采集一批常用可调参数（真实值）
+    param_keys = [
+        'osc.*.max_rpcs_in_flight', 'mdc.max_rpcs_in_flight',
+        'llite.*.max_read_ahead_mb', 'llite.*.max_cached_mb',
+        'ldlm.namespaces.*.lru_size', 'mdc.*.timeouts',
+    ]
+    params = []
+    for key in param_keys:
+        val, _, _ = run_cmd(f'lctl get_param -n {key} 2>/dev/null | head -1', timeout=10)
+        val = (val or '').strip()
+        if val:
+            params.append({'name': key, 'currentValue': val, 'source': 'live'})
+
+    # 默认条带解析
+    stripe_entries = []
+    for line in (stripe or '').splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if ':' in line:
+            k, v = line.split(':', 1)
+            stripe_entries.append({'key': k.strip(), 'value': v.strip()})
+
+    return jsonify({
+        'mount': LUSTRE_CLIENT,
+        'fsName': (fsname or '').strip() or 'lustre',
+        'lustreVersion': ("lctl get_param version" if False else (version or '').strip()),
+        'stripeRaw': stripe or '',
+        'stripe': stripe_entries,
+        'parameters': params,
+    })
+
+
 @app.route('/api/metrics/nodes')
 def nodes_list():
     """Return latest unique nodes"""
@@ -3784,6 +4016,9 @@ def dashboard_perf():
         'latency': {'read_ms': 0.1, 'write_ms': 0.1},
         'sys_stats': sys_row[0] if sys_row else None
     })
+
+# 启动本机自采集（WSGI/gunicorn 部署也能生效）；测试可用 LUSTRE_SELF_COLLECT=0 关闭
+start_self_collector()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=3006, debug=False)

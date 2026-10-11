@@ -32,14 +32,13 @@ import {
   Ban,
 } from 'lucide-react';
 import {
-  clusterNodes,
-  fileSystems,
   configHistory,
   parameterCategories,
   type ClusterNode,
   type FileSystemParameter,
   type ConfigDiffEntry,
 } from '@/data/mockClusterConfig';
+import { useLiveClusterNodes, useLiveFileSystems } from '@/lib/clusterMap';
 import toast from 'react-hot-toast';
 
 const tabs = [
@@ -117,10 +116,11 @@ function PageHeader({ unsavedCount, onExport, onSave, onHistory }: {
 /* ------------------------------------------------------------------ */
 function TopologyDiagram({ selectedNode, onSelectNode }: {
   selectedNode: ClusterNode | null;
-  onSelectNode: (node: ClusterNode) => void;
+  onSelectNode: (node: ClusterNode | null) => void;
 }) {
+  const clusterNodes = useLiveClusterNodes();
   const { darkMode } = useTheme();
-  const mgsNode = clusterNodes.find(n => n.role === 'mgs')!;
+  const mgsNode = clusterNodes.find(n => n.role === 'mgs') || clusterNodes[0] || null;
   const mdsNodes = clusterNodes.filter(n => n.role === 'mds');
   const ossNodes = clusterNodes.filter(n => n.role === 'oss');
   const clientNodes = clusterNodes.filter(n => n.role === 'client');
@@ -130,7 +130,7 @@ function TopologyDiagram({ selectedNode, onSelectNode }: {
   const nodePositions = useMemo(() => {
     const pos = new Map<string, { x: number; y: number }>();
     if (layout === 'hierarchical') {
-      pos.set(mgsNode.id, { x: 300, y: 140 });
+      if (mgsNode) pos.set(mgsNode.id, { x: 300, y: 140 });
       mdsNodes.forEach((n, i) => pos.set(n.id, { x: 150 + i * 300, y: 280 }));
       ossNodes.forEach((n, i) => {
         const row = Math.floor(i / 6);
@@ -438,14 +438,15 @@ function FileSystemParametersTab({
 }: {
   onUnsavedChange: (count: number) => void;
 }) {
-  const [fsId, setFsId] = useState(fileSystems[0].id);
+  const fileSystems = useLiveFileSystems();
+  const [fsId, setFsId] = useState(fileSystems[0]?.id || '');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('全部');
   const [unsavedParams, setUnsavedParams] = useState<Record<string, string>>({});
 
-  const currentFs = fileSystems.find(f => f.id === fsId)!;
+  const currentFs = fileSystems.find(f => f.id === fsId) || fileSystems[0];
   const categories = ['全部', ...new Set(currentFs.parameters.map(p => p.category))];
 
   const filteredParams = currentFs.parameters.filter(p => {
@@ -713,6 +714,7 @@ function FileSystemParametersTab({
 /*  Node Configuration Tab                                             */
 /* ------------------------------------------------------------------ */
 function NodeConfigurationTab() {
+  const clusterNodes = useLiveClusterNodes();
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
   const [diffNodeA, setDiffNodeA] = useState<ClusterNode | null>(null);
   const [diffNodeB, setDiffNodeB] = useState<ClusterNode | null>(null);
@@ -1067,9 +1069,10 @@ function ConfigHistoryDrawer({ open, onClose }: { open: boolean; onClose: () => 
 /*  Tunable Parameters Tab                                             */
 /* ------------------------------------------------------------------ */
 function TunableParametersTab() {
+  const fileSystems = useLiveFileSystems();
   const [expandedCategory, setExpandedCategory] = useState<string>('network');
 
-  const allParams = fileSystems[0].parameters;
+  const allParams = (fileSystems[0]?.parameters) || [];
 
   return (
     <div className="px-6 pb-6">
@@ -1146,13 +1149,14 @@ function TunableParametersTab() {
 /*  Config Diff Tab (current vs proposed)                              */
 /* ------------------------------------------------------------------ */
 function ConfigDiffTab() {
+  const fileSystems = useLiveFileSystems();
   const [proposedChanges] = useState<Record<string, string>>({
     stripe_count: '2',
     stripe_size: '2097152',
     max_rpcs_in_flight: '16',
   });
 
-  const fsParams = fileSystems[0].parameters;
+  const fsParams = (fileSystems[0]?.parameters) || [];
   const diffItems = fsParams.filter(p => proposedChanges[p.name] !== undefined);
 
   return (

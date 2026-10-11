@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BarChart,
@@ -41,13 +41,12 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import toast from 'react-hot-toast';
 import {
-  alertHistory,
-  alertRules as initialRules,
   alertVolumeData,
   defaultEmailConfig,
   defaultFeishuConfig,
 } from '@/data/alertsData';
 import type { AlertHistoryItem, AlertRule } from '@/data/alertsData';
+import { fetchAlertsActive, fetchAlertsHistory, fetchAlertRules, saveAlertRule, deleteAlertRule, testNotify, setChannel, fetchChannels } from '@/lib/cluster';
 
 const severityConfig = {
   critical: { color: '#EF4444', bg: 'bg-[#EF4444]/10', text: 'text-[#EF4444]', label: '紧急', icon: AlertOctagon },
@@ -81,7 +80,9 @@ export default function AlertsPage() {
   const [selectedAlert, setSelectedAlert] = useState<AlertHistoryItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
-  const [rules, setRules] = useState<AlertRule[]>(initialRules);
+  const [rules, setRules] = useState<AlertRule[]>([]);
+  const [alerts, setAlerts] = useState<AlertHistoryItem[]>([]);
+  const [historyRows, setHistoryRows] = useState<AlertHistoryItem[]>([]);
   const [ruleStep, setRuleStep] = useState(1);
   const [testEmailLoading, setTestEmailLoading] = useState(false);
   const [testFeishuLoading, setTestFeishuLoading] = useState(false);
@@ -89,7 +90,65 @@ export default function AlertsPage() {
   const [feishuConfig, setFeishuConfig] = useState(defaultFeishuConfig);
   const [showFeishuPreview, setShowFeishuPreview] = useState(false);
 
-  const filteredAlerts = alertHistory.filter((alert) => {
+  // 从后端加载真实告警与规则
+  const loadAlerts = useCallback(async () => {
+    const map = (a: any): AlertHistoryItem => ({
+      id: String(a.id),
+      severity: a.level,
+      title: a.title,
+      description: a.message,
+      category: /ost|mdt|容量|使用率|storage/i.test(a.title + a.message || '') ? 'storage' as const : /lnet|nid|network|网络|连接/i.test(a.title + a.message || '') ? 'network' as const : 'node' as const,
+      node: a.source || '—',
+      triggeredAt: a.timestamp,
+      resolvedAt: a.resolved_at || '—',
+      resolutionTime: '—',
+      resolvedBy: '—',
+      status: a.resolved ? 'resolved' as const : 'open' as const,
+    });
+    try {
+      const [active, hist] = await Promise.all([fetchAlertsActive(), fetchAlertsHistory()]);
+      setAlerts(active.map(map));
+      setHistoryRows(hist.map(map));
+    } catch { /* ignore */ }
+  }, []);
+
+  const loadRulesData = useCallback(async () => {
+    const rs = await fetchAlertRules();
+    setRules(rs.map((r) => ({
+      id: r.id,
+      name: r.name,
+      metric: r.metric,
+      condition: r.condition,
+      threshold: r.threshold,
+      severity: r.severity,
+      channels: [],
+      enabled: !!r.enabled,
+      interval: '60s',
+      duration: '0',
+      tags: [],
+    })));
+  }, []);
+
+  useEffect(() => {
+    void loadAlerts();
+    void loadRulesData();
+    // 加载已保存的通知渠道配置（飞书）
+    (async () => {
+      const ch = await fetchChannels();
+      const f = ch.feishu;
+      if (f) {
+        setFeishuConfig((prev) => ({
+          ...prev,
+          webhookUrl: (f.webhookMasked as string) || prev.webhookUrl,
+        }));
+      }
+    })();
+    // 每 30s 刷新一次活跃告警
+    const timer = window.setInterval(() => { void loadAlerts(); }, 30000);
+    return () => window.clearInterval(timer);
+  }, [loadAlerts, loadRulesData]);
+
+  const filteredAlerts = (activeTab === 'history' ? historyRows : alerts).filter((alert) => {
     if (severityFilter !== '全部' && alert.severity !== severityFilter) return false;
     if (categoryFilter !== '全部' && alert.category !== categoryFilter) return false;
     if (searchQuery && !alert.title.includes(searchQuery) && !alert.description.includes(searchQuery)) return false;
@@ -101,33 +160,41 @@ export default function AlertsPage() {
     setDetailOpen(true);
   };
 
-  const toggleRule = (id: string) => {
-    setRules((prev) => prev.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)));
+  const toggleRule = async (id: string) => {
+    const r = rules.find((x) => x.id === id);
+    if (!r) return;
+    await saveAlertRule({ id: r.id, name: r.name, metric: r.metric, condition: r.condition, threshold: r.threshold, severity: r.severity, enabled: !r.enabled });
+    void loadRulesData();
   };
 
   const handleTestEmail = () => {
     setTestEmailLoading(true);
     setTimeout(() => {
       setTestEmailLoading(false);
-      toast.success('测试邮件已发送，请查收邮箱');
-    }, 1500);
+      toast.error('邮件通知暂未接入，请使用飞书渠道');
+    }, 800);
   };
 
-  const handleTestFeishu = () => {
+  const handleTestFeishu = async () => {
     setTestFeishuLoading(true);
-    setTimeout(() => {
+    try {
+      const r = await testNotify('feishu');
+      if (r.ok) toast.success('飞书测试消息已发送，请查看群消息');
+      else toast.error(r.message || '发送失败，请先在“通知设置”配置并启用飞书 Webhook');
+    } catch {
+      toast.error('发送失败');
+    } finally {
       setTestFeishuLoading(false);
       setShowFeishuPreview(true);
-      toast.success('飞书Webhook测试成功！消息已模拟发送');
-    }, 1500);
+    }
   };
 
   // Stats
-  const criticalCount = alertHistory.filter((a) => a.severity === 'critical' && a.status === 'open').length;
-  const warningCount = alertHistory.filter((a) => a.severity === 'warning' && a.status === 'open').length;
-  const infoCount = alertHistory.filter((a) => a.severity === 'info' && a.status === 'open').length;
-  const resolvedToday = alertHistory.filter((a) => a.status === 'resolved').length;
-  const silencedCount = 2;
+  const criticalCount = alerts.filter((a) => a.severity === 'critical' && a.status === 'open').length;
+  const warningCount = alerts.filter((a) => a.severity === 'warning' && a.status === 'open').length;
+  const infoCount = alerts.filter((a) => a.severity === 'info' && a.status === 'open').length;
+  const resolvedToday = historyRows.filter((a) => a.status === 'resolved').length;
+  const silencedCount = rules.filter((r) => !r.enabled).length;
 
   return (
     <div className="min-h-[100dvh] bg-slate-50 dark:bg-[#0A0F1A] p-6">
@@ -527,7 +594,7 @@ export default function AlertsPage() {
                         <td className="px-3 py-3">
                           <SeverityBadge severity={rule.severity} />
                         </td>
-                        <td className="px-3 py-3 text-slate-600 dark:text-[#94A3B8]">{rule.channels.join(', ')}</td>
+                        <td className="px-3 py-3 text-slate-600 dark:text-[#94A3B8]">{(rule.channels || []).join(', ') || '—'}</td>
                         <td className="px-3 py-3">
                           <Switch
                             checked={rule.enabled}
@@ -540,7 +607,7 @@ export default function AlertsPage() {
                               size="sm"
                               variant="ghost"
                               className="h-7 text-xs text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:text-[#F1F5F9]"
-                              onClick={() => toast('编辑功能开发中')}
+                              onClick={() => toast('在“新建规则”中修改指标/阈值后可覆盖同名规则')}
                             >
                               编辑
                             </Button>
@@ -548,7 +615,7 @@ export default function AlertsPage() {
                               size="sm"
                               variant="ghost"
                               className="h-7 text-xs text-[#EF4444] hover:text-[#EF4444]"
-                              onClick={() => toast('删除功能开发中')}
+                              onClick={async () => { await deleteAlertRule(rule.id); toast.success('规则已删除'); void loadRulesData(); }}
                             >
                               删除
                             </Button>
@@ -695,7 +762,19 @@ export default function AlertsPage() {
                       {testFeishuLoading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
                       发送测试消息
                     </Button>
-                    <Button className="bg-gradient-to-r from-[#0EA5E9] to-[#6366F1] text-white hover:opacity-90">
+                    <Button
+                      className="bg-gradient-to-r from-[#0EA5E9] to-[#6366F1] text-white hover:opacity-90"
+                      onClick={async () => {
+                        const ok = await setChannel('feishu', {
+                          enabled: true,
+                          webhookUrl: feishuConfig.webhookUrl,
+                          secret: feishuConfig.secret,
+                          atUsers: feishuConfig.atUsers,
+                        });
+                        if (ok) toast.success('飞书通知已保存并启用');
+                        else toast.error('保存失败');
+                      }}
+                    >
                       保存
                     </Button>
                   </div>

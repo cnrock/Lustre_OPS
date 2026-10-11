@@ -2,7 +2,7 @@
 
 Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监控与诊断控制台。项目将文件系统状态、性能与容量指标、LNet 网络、告警、集群巡检、日志分析和知识库集中在一个 Web 工作台中，降低日常巡检和故障定位的操作成本。
 
-> 当前版本：`v1.6.0`。修复客户端挂载点误判：后端自动探测真实 Lustre 挂载点（不再因默认值 `/lustre/client` 与实际 `/lustre` 不一致而误判「未挂载」），挂载状态下容量、OST 与性能数据恢复正常。生产环境部署前请先阅读[安全说明](SECURITY.md)和[部署指南](docs/deployment.md)。
+> 当前版本：`v1.7.0`。全新界面改版：参考 Apple 官网审美重构设计系统（克制配色、大留白、精确字距、柔和层次阴影、毛玻璃导航），统一卡片/按钮/表单/导航观感，同时保留全部功能。生产环境部署前请先阅读[安全说明](SECURITY.md)和[部署指南](docs/deployment.md)。
 
 ![Lustre OPS 云控制台总览](app/product-audit/cloud-console-dashboard-final.png)
 
@@ -68,6 +68,12 @@ Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监�
 
 - 自动识别真实 Lustre 客户端挂载点（`findmnt -t lustre`），配置的挂载点未挂载时回退探测，避免误判「未挂载」。
 - 状态接口 / 巡检 / 容量接口统一使用探测后的挂载点。
+
+### 界面改版（Apple 风格）
+
+- 重构设计系统：Apple 式配色（#0071e3 主色）、大留白、精确字距、柔和多层阴影、毛玻璃导航。
+- 登录页、侧边导航、顶栏、总览页统一新风格；卡片/按钮/表单圆角与层次统一。
+- 浅色为主、深色为精致对偶；保留全部功能与信息密度。
 
 ### AI 日志分析与知识库
 
@@ -169,7 +175,8 @@ python -m unittest api.test_knowledge_overview api.test_ai_response_policy -v
 
 ## 当前边界
 
-- `v1.6.0` 自动探测 Lustre 客户端挂载点；`LUSTRE_CLIENT_MOUNT` 仍作为首选，未挂载时回退 `findmnt -t lustre` 探测结果。
+- `v1.7.0` 为纯界面改版，功能与接口不变；设计系统以浅色为主、深色为对偶。
+- 自动探测 Lustre 客户端挂载点（`LUSTRE_CLIENT_MOUNT` 首选，未挂载回退 `findmnt -t lustre`）。
 - 服务端深度探针依赖节点上存在 `check_servers.pl` / `get_ost.pl` / `rg_control` / `ibstat` / `lsscsi` 等命令；缺失时对应项自动标记为不可用。
 - Agent 控制面（注册、任务下发、断点续传）仍为简化实现。
 - 已提供基础登录鉴权与会话令牌；细粒度 RBAC 与审计持久化仍在路线图中。
@@ -185,6 +192,7 @@ python -m unittest api.test_knowledge_overview api.test_ai_response_policy -v
 - Quota 监控（用户 / 组 / 项目配额与 Grace Time）。
 - 清单自动发现与拓扑感知。
 - Prometheus / Grafana 集成，复用现有监控栈。
+- 移动端适配与可访问性增强。
 - PostgreSQL + pgvector 或独立向量数据库，接入真实 embedding 与知识质量权重。
 - 告警聚合、更多通知渠道、工单联动和高可用部署。
 
@@ -196,6 +204,7 @@ python -m unittest api.test_knowledge_overview api.test_ai_response_policy -v
 - v1.4.0：集群清单对账——应采/实采比对、心跳超时与应报未报告警。
 - v1.5.0：服务端深度探针——Recovery / check_servers.pl / IB HCA / DDN 磁盘数 / LDLM，含告警与处理指引。
 - v1.6.0：修复客户端挂载点误判——自动探测真实 Lustre 挂载点，恢复容量/OST/性能数据。
+- v1.7.0：界面改版（Apple 风格）——重构设计系统与导航/登录/总览观感。
 
 ## 许可证
 

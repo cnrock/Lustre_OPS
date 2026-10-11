@@ -2,66 +2,91 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Lustre OPS · 设计令牌
+ * 参考 Apple 官网审美：大量留白、克制的色彩、精确的字距、
+ * 柔和的层次阴影、圆润但不过度的圆角。
+ * 浅色为主（apple.com 风格），深色为精致对偶。
+ */
 @layer base {
   :root {
+    /* 底色：纯白与极浅灰（apple.com #fff / #fbfbfd / #f5f5f7） */
     --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --foreground: 0 0% 11%;            /* #1d1d1f 近黑 */
+
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 0 0% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
-    --radius: 0.625rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --popover-foreground: 0 0% 11%;
+
+    /* 主色：Apple 蓝 #0071e3 */
+    --primary: 211 100% 45%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 0 0% 11%;
+
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 43%;    /* #6e6e73 */
+
+    --accent: 211 100% 96%;
+    --accent-foreground: 211 100% 35%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 211 100% 45%;
+
+    --radius: 0.875rem;                /* 14px */
+
+    --sidebar-background: 0 0% 98%;    /* #fbfbfd */
+    --sidebar-foreground: 0 0% 22%;
+    --sidebar-primary: 211 100% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 5% 94%;
+    --sidebar-accent-foreground: 0 0% 11%;
+    --sidebar-border: 240 6% 90%;
+    --sidebar-ring: 211 100% 45%;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    --background: 0 0% 0%;             /* Apple 深色以纯黑为底 */
+    --foreground: 0 0% 96%;
+
+    --card: 0 0% 7%;                   /* #121212 面 */
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 9%;
+    --popover-foreground: 0 0% 96%;
+
+    --primary: 210 100% 52%;           /* #0a84ff 深色下的 Apple 蓝 */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 96%;
+
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 62%;
+
+    --accent: 210 60% 16%;
+    --accent-foreground: 210 100% 72%;
+
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 210 100% 52%;
+
+    --sidebar-background: 0 0% 4%;
+    --sidebar-foreground: 0 0% 82%;
+    --sidebar-primary: 210 100% 52%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: 0 0% 12%;
+    --sidebar-accent-foreground: 0 0% 96%;
+    --sidebar-border: 0 0% 14%;
+    --sidebar-ring: 210 100% 52%;
   }
 }
 
@@ -69,31 +94,77 @@
   * {
     @apply border-border;
   }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
   body {
     @apply bg-background text-foreground;
-    font-family: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-feature-settings: "tnum";
-    letter-spacing: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+      "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+      "Noto Sans CJK SC", system-ui, sans-serif;
+    font-feature-settings: "tnum", "cv01", "cv02";
+    letter-spacing: -0.01em;
   }
-
+  h1, h2, h3, h4 {
+    letter-spacing: -0.022em;
+    font-weight: 600;
+  }
   ::selection {
-    background: rgb(37 99 235 / 18%);
+    background: rgb(0 113 227 / 20%);
+  }
+}
+
+@layer components {
+  /* Apple 式卡片：极淡描边 + 柔和多层阴影 */
+  .ops-card {
+    @apply rounded-2xl border bg-card;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -12px rgb(0 0 0 / 0.10);
+  }
+  /* 毛玻璃导航（apple.com 顶部导航效果） */
+  .ops-glass {
+    background: color-mix(in srgb, hsl(var(--background)) 72%, transparent);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+  /* 主按钮渐变（克制） */
+  .ops-btn-primary {
+    @apply bg-primary text-primary-foreground;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+    transition: transform .15s ease, box-shadow .2s ease, opacity .15s ease;
+  }
+  .ops-btn-primary:hover {
+    opacity: .92;
+    box-shadow: 0 4px 14px -4px rgb(0 113 227 / 0.5);
+  }
+  .ops-btn-primary:active {
+    transform: scale(0.98);
   }
 }
 
 @layer utilities {
   .ops-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: rgb(148 163 184 / 55%) transparent;
+    scrollbar-color: rgb(148 163 184 / 45%) transparent;
   }
-
   .ops-scrollbar::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
-
   .ops-scrollbar::-webkit-scrollbar-thumb {
     border-radius: 999px;
-    background: rgb(148 163 184 / 45%);
+    background: rgb(148 163 184 / 40%);
+  }
+  .ops-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgb(148 163 184 / 60%);
+  }
+  /* 柔和淡入 */
+  @keyframes ops-fade-up {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .ops-fade-up {
+    animation: ops-fade-up .4s cubic-bezier(.25,.1,.25,1) both;
   }
 }

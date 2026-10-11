@@ -144,15 +144,15 @@ function formatNumber(value?: number, digits = 1): string {
 
 function StatusBadge({ tone, children }: { tone: 'success' | 'warning' | 'danger' | 'info' | 'muted'; children: React.ReactNode }) {
   const styles = {
-    success: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300',
-    warning: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300',
-    danger: 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300',
-    info: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300',
-    muted: 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300',
+    success: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+    warning: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+    danger: 'bg-red-500/10 text-red-600 dark:text-red-400',
+    info: 'bg-[hsl(var(--primary))]/10 text-primary',
+    muted: 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]',
   }
 
   return (
-    <span className={cn('inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs font-medium', styles[tone])}>
+    <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium', styles[tone])}>
       {children}
     </span>
   )
@@ -170,9 +170,9 @@ function Panel({
   className?: string
 }) {
   return (
-    <section className={cn('rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900', className)}>
-      <div className="flex min-h-12 items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
+    <section className={cn('ops-card overflow-hidden', className)}>
+      <div className="flex min-h-12 items-center justify-between border-b px-5 py-3.5">
+        <h2 className="text-[14px] font-semibold text-foreground">{title}</h2>
         {action}
       </div>
       {children}
@@ -194,25 +194,25 @@ function MetricTile({
   tone: 'blue' | 'green' | 'amber' | 'red' | 'slate'
 }) {
   const tones = {
-    blue: 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300',
-    green: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
-    amber: 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
-    red: 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300',
-    slate: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+    blue: 'bg-[hsl(var(--primary))]/10 text-primary',
+    green: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+    amber: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+    red: 'bg-red-500/10 text-red-600 dark:text-red-400',
+    slate: 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]',
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div className="ops-card ops-fade-up p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{title}</p>
-          <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{value}</p>
+          <p className="text-[12px] text-[hsl(var(--muted-foreground))]">{title}</p>
+          <p className="mt-2 text-[28px] font-semibold leading-none tracking-tight text-foreground tabular-nums">{value}</p>
         </div>
-        <span className={cn('flex h-9 w-9 items-center justify-center rounded-md', tones[tone])}>
-          <Icon className="h-4 w-4" />
+        <span className={cn('flex h-9 w-9 items-center justify-center rounded-xl', tones[tone])}>
+          <Icon className="h-[18px] w-[18px]" />
         </span>
       </div>
-      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">{desc}</p>
+      <p className="mt-3 text-[12px] leading-5 text-[hsl(var(--muted-foreground))]">{desc}</p>
     </div>
   )
 }
@@ -436,31 +436,31 @@ export default function Dashboard() {
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4">
-      <section className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex flex-col gap-4 border-b border-slate-100 px-4 py-4 dark:border-slate-800 xl:flex-row xl:items-center xl:justify-between">
+      <section className="ops-card">
+        <div className="flex flex-col gap-4 border-b px-5 py-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">文件系统</p>
+              <p className="text-[12px] text-[hsl(var(--muted-foreground))]">文件系统</p>
               <div className="mt-1 flex items-center gap-2">
-                <h1 className="text-xl font-semibold text-slate-950 dark:text-white">{apiSummary?.filesystem || 'lustre'}</h1>
+                <h1 className="text-[22px] font-semibold tracking-tight text-foreground">{apiSummary?.filesystem || 'lustre'}</h1>
                 <StatusBadge tone={statusTone}>
                   {statusTone === 'success' ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
                   {statusLabel}
                 </StatusBadge>
               </div>
             </div>
-            <div className="h-10 w-px bg-slate-200 dark:bg-slate-800" />
+            <div className="h-10 w-px bg-[hsl(var(--border))]" />
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">运行时间</p>
-              <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-200">{apiConnected === null ? '读取中' : apiOffline ? '不可用' : '持续监控中'}</p>
+              <p className="text-[12px] text-[hsl(var(--muted-foreground))]">运行时间</p>
+              <p className="mt-1 text-[13px] font-medium text-foreground">{apiConnected === null ? '读取中' : apiOffline ? '不可用' : '持续监控中'}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Lustre 版本</p>
-              <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-200">{apiSummary?.version || '2.15.x'}</p>
+              <p className="text-[12px] text-[hsl(var(--muted-foreground))]">Lustre 版本</p>
+              <p className="mt-1 text-[13px] font-medium text-foreground">{apiSummary?.version || '2.15.x'}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">最近更新</p>
-              <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-200">{lastUpdated ? lastUpdated.toLocaleTimeString('zh-CN') : '等待刷新'}</p>
+              <p className="text-[12px] text-[hsl(var(--muted-foreground))]">最近更新</p>
+              <p className="mt-1 text-[13px] font-medium text-foreground">{lastUpdated ? lastUpdated.toLocaleTimeString('zh-CN') : '等待刷新'}</p>
             </div>
           </div>
 
@@ -468,7 +468,7 @@ export default function Dashboard() {
             <button
               onClick={() => load(true)}
               disabled={refreshing}
-              className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              className="inline-flex h-9 items-center gap-2 rounded-full border bg-card px-4 text-[13px] text-foreground transition-colors hover:bg-[hsl(var(--accent))] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               刷新
@@ -479,7 +479,7 @@ export default function Dashboard() {
                 setTimeRange(event.target.value)
                 toast.success(`已切换到${event.target.value}`)
               }}
-              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-colors hover:bg-slate-50 focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              className="h-9 rounded-full border bg-card px-4 text-[13px] text-foreground outline-none transition-colors hover:bg-[hsl(var(--accent))] focus:border-primary/50"
               aria-label="选择监控时间范围"
             >
               <option>最近 15 分钟</option>
@@ -489,14 +489,14 @@ export default function Dashboard() {
             </select>
             <button
               onClick={handleExport}
-              className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              className="inline-flex h-9 items-center gap-2 rounded-full border bg-card px-4 text-[13px] text-foreground transition-colors hover:bg-[hsl(var(--accent))]"
             >
               <Download className="h-4 w-4" />
               导出报告
             </button>
             <Link
               to="/health-check"
-              className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white transition-colors hover:bg-blue-500"
+              className="ops-btn-primary inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium"
             >
               <ShieldCheck className="h-4 w-4" />
               立即巡检
@@ -504,10 +504,10 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="px-4 py-4">
+        <div className="px-5 py-4">
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">文件系统状态</p>
-            <div className="flex flex-wrap gap-4 text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-[13px] font-medium text-foreground">文件系统状态</p>
+            <div className="flex flex-wrap gap-4 text-[12px] text-[hsl(var(--muted-foreground))]">
               {statusSegments.map((item) => (
                 <span key={item.label} className="inline-flex items-center gap-1">
                   <span className={cn('h-2 w-2 rounded-sm', item.color)} />
@@ -516,7 +516,7 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
-          <div className="flex h-3 overflow-hidden rounded bg-slate-100 dark:bg-slate-800">
+          <div className="flex h-2.5 overflow-hidden rounded-full bg-[hsl(var(--muted))]">
             {statusSegments.map((item) => (
               <div
                 key={item.label}
@@ -531,19 +531,19 @@ export default function Dashboard() {
 
       {(apiOffline || lustreUnavailable) && (
         <div className={cn(
-          'rounded-lg border px-4 py-3 text-sm',
+          'ops-card px-5 py-4 text-[13px]',
           apiOffline
-            ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200'
-            : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100',
+            ? 'border-red-500/30 bg-red-500/[0.06] text-red-700 dark:text-red-300'
+            : 'border-amber-500/30 bg-amber-500/[0.06] text-amber-700 dark:text-amber-300',
         )}>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-2.5">
               <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
               <div>
                 <p className="font-medium">{apiOffline ? '后端 API 当前不可用' : primaryAlert?.title || 'Lustre 文件系统当前未挂载'}</p>
                 <p className="mt-1 opacity-85">
                   {apiOffline
-                    ? '请确认测试服务器 3006 端口的 Lustre API 已启动。离线状态下页面不会给出健康结论。'
+                    ? '请确认 3006 端口的 Lustre API 已启动。离线状态下页面不会给出健康结论。'
                     : primaryAlert?.message || apiHealth?.serversOutput || 'API 已连接，但未检测到 Lustre 客户端挂载点。容量、OST 和实时性能数据暂不可用。'}
                 </p>
               </div>
@@ -551,10 +551,10 @@ export default function Dashboard() {
             <Link
               to={apiOffline ? '/alerts' : primaryAlertHref}
               className={cn(
-                'inline-flex h-8 flex-shrink-0 items-center justify-center gap-1 rounded-md border px-3 text-xs font-medium transition-colors',
+                'inline-flex h-8 flex-shrink-0 items-center justify-center gap-1 rounded-full px-3.5 text-[12px] font-medium transition-colors',
                 apiOffline
-                  ? 'border-red-200 bg-white text-red-700 hover:bg-red-100 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100 dark:hover:bg-red-500/20'
-                  : 'border-amber-300 bg-white text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100 dark:hover:bg-amber-500/20',
+                  ? 'bg-red-500/10 text-red-700 hover:bg-red-500/20 dark:text-red-300'
+                  : 'bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300',
               )}
             >
               查看详情

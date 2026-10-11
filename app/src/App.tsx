@@ -47,93 +47,73 @@ const notifications = [
   { id: 4, type: 'warning', icon: AlertTriangle, title: 'node-12 网络延迟异常', time: '1小时前', read: true, color: 'text-amber-400 bg-amber-500/10' },
 ]
 
+function NavLink({ item, isActive, onNavigate }: { item: typeof navItems[number]; isActive: boolean; onNavigate: () => void }) {
+  const Icon = item.icon
+  return (
+    <Link key={item.path} to={item.path} onClick={onNavigate}
+      className={['group relative flex items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-all duration-200',
+        isActive
+          ? 'bg-primary text-primary-foreground shadow-sm'
+          : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-accent))]'
+      ].join(' ')}>
+      <Icon className={['h-[17px] w-[17px] transition-transform duration-200 group-hover:scale-105', isActive ? '' : 'opacity-70'].join(' ')} />
+      <span>{item.label}</span>
+    </Link>
+  )
+}
+
 function Sidebar({ isOpen, setIsOpen }: { isOpen: boolean; setIsOpen: (v: boolean) => void }) {
   const location = useLocation()
+  const close = () => setIsOpen(false)
   return (
     <>
       {isOpen && (
-        <div className="fixed inset-0 z-40 bg-slate-950/40 lg:hidden" onClick={() => setIsOpen(false)} />
+        <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm lg:hidden" onClick={close} />
       )}
       <aside className={[
-        'fixed top-0 left-0 z-50 h-screen border-r transition-transform duration-300 ease-in-out',
+        'ops-glass fixed top-0 left-0 z-50 flex h-screen w-[248px] flex-col border-r transition-transform duration-300 ease-[cubic-bezier(.25,.1,.25,1)]',
         isOpen ? 'translate-x-0' : '-translate-x-full',
-        'lg:translate-x-0 w-[248px] flex flex-col bg-[#07172b] border-[#10233f] text-slate-300'
+        'lg:translate-x-0 bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]'
       ].join(' ')}>
-        <div className="flex items-center justify-between border-b border-[#10233f] px-4 py-4">
+        <div className="flex items-center justify-between px-5 py-[18px]">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-600">
-              <HardDrive className="w-4 h-4 text-white" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-primary shadow-sm">
+              <HardDrive className="h-4 w-4 text-white" />
             </div>
             <div>
-              <h1 className="text-sm font-semibold leading-tight text-white">Lustre 监控运维</h1>
-              <p className="mt-0.5 text-[11px] text-slate-400">HPC Storage Console</p>
+              <h1 className="text-[13px] font-semibold leading-tight tracking-tight">Lustre 监控运维</h1>
+              <p className="mt-0.5 text-[11px] text-[hsl(var(--muted-foreground))]">HPC Storage Console</p>
             </div>
           </div>
-          <button onClick={() => setIsOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-white/10 hover:text-white lg:hidden" aria-label="关闭导航菜单">
-            <X className="w-5 h-5" />
+          <button onClick={close} className="rounded-lg p-1 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--sidebar-accent))] lg:hidden" aria-label="关闭导航菜单">
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-2 py-3">
-          <p className="mb-2 px-3 text-[11px] font-medium text-slate-500">监控态势</p>
-          {navItems.slice(0, 1).map(item => {
-            const Icon = item.icon
-            const isActive = location.pathname === item.path
-            return (
-              <Link key={item.path} to={item.path} onClick={() => setIsOpen(false)}
-                className={['mb-1 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors',
-                  isActive
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                ].join(' ')}>
-                <Icon className="w-4 h-4" />
-                <span>{item.label}</span>
-              </Link>
-            )
-          })}
+        <nav className="flex-1 overflow-y-auto px-2.5 pb-3 ops-scrollbar">
+          <p className="mb-1.5 mt-3 px-3 text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">监控态势</p>
+          {navItems.slice(0, 1).map(item => (
+            <NavLink key={item.path} item={item} isActive={location.pathname === item.path} onNavigate={close} />
+          ))}
 
-          <p className="mb-2 mt-5 px-3 text-[11px] font-medium text-slate-500">资源与可观测</p>
-          {navItems.slice(1).map(item => {
-            const Icon = item.icon
-            const isActive = location.pathname === item.path
-            return (
-              <Link key={item.path} to={item.path} onClick={() => setIsOpen(false)}
-                className={['mb-1 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors',
-                  isActive
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                ].join(' ')}>
-                <Icon className="w-4 h-4" />
-                <span>{item.label}</span>
-              </Link>
-            )
-          })}
+          <p className="mb-1.5 mt-5 px-3 text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">资源与可观测</p>
+          {navItems.slice(1).map(item => (
+            <NavLink key={item.path} item={item} isActive={location.pathname === item.path} onNavigate={close} />
+          ))}
 
-          <p className="mb-2 mt-5 px-3 text-[11px] font-medium text-slate-500">系统</p>
-          {systemItems.map(item => {
-            const Icon = item.icon
-            const isActive = location.pathname === item.path
-            return (
-              <Link key={item.path} to={item.path} onClick={() => setIsOpen(false)}
-                className={['mb-1 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors',
-                  isActive
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                ].join(' ')}>
-                <Icon className="w-4 h-4" />
-                <span>{item.label}</span>
-              </Link>
-            )
-          })}
+          <p className="mb-1.5 mt-5 px-3 text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">系统</p>
+          {systemItems.map(item => (
+            <NavLink key={item.path} item={item} isActive={location.pathname === item.path} onNavigate={close} />
+          ))}
         </nav>
 
-        <div className="border-t border-[#10233f] p-3">
-          <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
-            <div className="flex items-center gap-2 text-xs text-emerald-300">
-              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+        <div className="p-3">
+          <div className="rounded-xl border border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-accent))]/60 p-3">
+            <div className="flex items-center gap-2 text-[12px] font-medium">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               生产环境监控中
             </div>
-            <p className="mt-2 text-[11px] leading-4 text-slate-400">Lustre OPS v1.0 · 测试服务器</p>
+            <p className="mt-1.5 text-[11px] leading-4 text-[hsl(var(--muted-foreground))]">Lustre OPS · HPC 存储控制台</p>
           </div>
         </div>
       </aside>
@@ -189,34 +169,28 @@ function Header({ setSidebarOpen, currentUser, onLogout }: { setSidebarOpen: (v:
   const avatarText = (displayName || 'U').slice(0, 2).toUpperCase()
 
   return (
-    <header className={['sticky top-0 z-30 flex h-14 items-center justify-between border-b px-4',
-      darkMode
-        ? 'bg-slate-950 border-slate-800'
-        : 'bg-white border-slate-200'
-      ].join(' ')}>
+    <header className={[
+      'ops-glass sticky top-0 z-30 flex h-14 items-center justify-between border-b px-4 sm:px-6',
+    ].join(' ')}>
       <div className="flex items-center gap-3">
         <button
           onClick={() => setSidebarOpen(true)}
           aria-label="打开导航菜单"
-          className="lg:hidden text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+          className="text-[hsl(var(--muted-foreground))] transition-colors hover:text-foreground lg:hidden"
         >
-          <Menu className="w-5 h-5" />
+          <Menu className="h-5 w-5" />
         </button>
-        <div className="hidden items-center gap-2 text-xs text-slate-500 sm:flex">
+        <div className="hidden items-center gap-2 text-[12px] text-[hsl(var(--muted-foreground))] sm:flex">
           <span>控制台</span>
-          <span>/</span>
-          <span className="font-medium text-slate-800 dark:text-slate-200">{currentItem?.label || '总览'}</span>
+          <span className="opacity-40">/</span>
+          <span className="font-medium text-foreground">{currentItem?.label || '总览'}</span>
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         <div className="relative hidden md:block">
-          <div className={['flex h-9 items-center gap-2 rounded-md border px-3',
-          darkMode
-            ? 'bg-slate-900 border-slate-700'
-            : 'bg-slate-50 border-slate-200'
-          ].join(' ')}>
-            <Search className="w-3.5 h-3.5 text-slate-400" />
+          <div className="flex h-9 items-center gap-2 rounded-full border bg-[hsl(var(--muted))] px-3.5 transition-colors focus-within:border-primary/40">
+            <Search className="h-3.5 w-3.5 text-[hsl(var(--muted-foreground))]" />
             <input
               type="text"
               value={searchQuery}
@@ -225,15 +199,13 @@ function Header({ setSidebarOpen, currentUser, onLogout }: { setSidebarOpen: (v:
                 if (event.key === 'Enter') submitSearch()
                 if (event.key === 'Escape') setSearchQuery('')
               }}
-              placeholder="搜索文件系统、主机、指标、告警..."
+              placeholder="搜索页面、指标、告警…"
               aria-label="搜索页面"
-              className="w-72 bg-transparent text-xs text-slate-700 outline-none placeholder-slate-400 dark:text-slate-300"
+              className="w-64 bg-transparent text-[12px] text-foreground outline-none placeholder:text-[hsl(var(--muted-foreground))]"
             />
           </div>
           {searchResults.length > 0 && (
-            <div className={['absolute right-0 top-10 z-50 w-72 overflow-hidden rounded-lg border shadow-xl',
-              darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
-            ].join(' ')}>
+            <div className="absolute right-0 top-11 z-50 w-64 overflow-hidden rounded-2xl border bg-popover shadow-xl">
               {searchResults.map((item) => {
                 const Icon = item.icon
                 return (
@@ -243,7 +215,7 @@ function Header({ setSidebarOpen, currentUser, onLogout }: { setSidebarOpen: (v:
                       navigate(item.path)
                       setSearchQuery('')
                     }}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700/50 dark:hover:text-white"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-[13px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--accent))] hover:text-foreground"
                   >
                     <Icon className="h-4 w-4" />
                     {item.label}
@@ -256,16 +228,16 @@ function Header({ setSidebarOpen, currentUser, onLogout }: { setSidebarOpen: (v:
 
         <button
           onClick={() => toast.success('当前环境：生产环境')}
-          className="hidden h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 lg:inline-flex"
+          className="hidden h-9 items-center gap-2 rounded-full border bg-card px-3.5 text-[12px] text-foreground transition-colors hover:bg-[hsl(var(--accent))] lg:inline-flex"
         >
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
           生产环境
-          <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+          <ChevronDown className="h-3.5 w-3.5 text-[hsl(var(--muted-foreground))]" />
         </button>
 
         <Link
           to="/health-check"
-          className="hidden h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-xs font-medium text-white transition-colors hover:bg-blue-500 xl:inline-flex"
+          className="ops-btn-primary hidden h-9 items-center gap-2 rounded-full px-4 text-[12px] font-medium xl:inline-flex"
         >
           <ShieldCheck className="h-3.5 w-3.5" />
           巡检
@@ -276,47 +248,40 @@ function Header({ setSidebarOpen, currentUser, onLogout }: { setSidebarOpen: (v:
           <button
             onClick={() => { setNotifOpen(!notifOpen); setUserOpen(false) }}
             aria-label={`通知中心，${unreadCount} 条未读`}
-            className="relative p-1.5 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors"
+            className="relative rounded-full p-2 text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--accent))] hover:text-foreground"
           >
-            <Bell className="w-4 h-4" />
+            <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 rounded-full text-[9px] text-white flex items-center justify-center font-bold">{unreadCount}</span>
+              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-red-500" />
             )}
           </button>
           {notifOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
-              <div className={['absolute right-0 top-10 z-50 w-80 overflow-hidden rounded-lg border shadow-xl',
-                darkMode
-                  ? 'bg-slate-800 border-slate-700'
-                  : 'bg-white border-slate-200'
-              ].join(' ')}>
-                <div className={['flex items-center justify-between px-4 py-3 border-b',
-                  darkMode ? 'border-slate-700/50' : 'border-slate-200'].join(' ')}>
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">通知</h3>
-                  <span className="text-xs text-slate-500">{unreadCount} 条未读</span>
+              <div className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-2xl border bg-popover shadow-xl">
+                <div className="flex items-center justify-between border-b px-4 py-3">
+                  <h3 className="text-[13px] font-semibold text-foreground">通知</h3>
+                  <span className="text-[11px] text-[hsl(var(--muted-foreground))]">{unreadCount} 条未读</span>
                 </div>
-                <div className="max-h-72 overflow-y-auto">
+                <div className="max-h-72 overflow-y-auto ops-scrollbar">
                   {notifications.map(n => {
                     const Icon = n.icon
                     return (
-                      <div key={n.id} className={[`flex items-start gap-3 px-4 py-3 border-b transition-colors ${!n.read ? 'bg-slate-50 dark:bg-slate-700/10' : ''}`,
-                        darkMode ? 'border-slate-700/30 hover:bg-slate-700/30' : 'border-slate-100 hover:bg-slate-50'].join(' ')}>
-                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${n.color}`}>
-                          <Icon className="w-3.5 h-3.5" />
+                      <div key={n.id} className={`flex items-start gap-3 border-b px-4 py-3 transition-colors hover:bg-[hsl(var(--accent))]/50 ${!n.read ? 'bg-[hsl(var(--accent))]/30' : ''}`}>
+                        <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${n.color}`}>
+                          <Icon className="h-3.5 w-3.5" />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-xs ${!n.read ? 'text-slate-900 dark:text-white font-medium' : 'text-slate-600 dark:text-slate-300'}`}>{n.title}</p>
-                          <p className="text-[10px] text-slate-500 mt-0.5">{n.time}</p>
+                        <div className="min-w-0 flex-1">
+                          <p className={`text-[12px] ${!n.read ? 'font-medium text-foreground' : 'text-[hsl(var(--muted-foreground))]'}`}>{n.title}</p>
+                          <p className="mt-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">{n.time}</p>
                         </div>
-                        {!n.read && <div className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />}
+                        {!n.read && <div className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />}
                       </div>
                     )
                   })}
                 </div>
-                <div className={['px-4 py-2 border-t',
-                  darkMode ? 'border-slate-700/50' : 'border-slate-200'].join(' ')}>
-                  <Link to="/alerts" onClick={() => setNotifOpen(false)} className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 text-center block">查看全部通知</Link>
+                <div className="border-t px-4 py-2">
+                  <Link to="/alerts" onClick={() => setNotifOpen(false)} className="block text-center text-[12px] text-primary hover:opacity-80">查看全部通知</Link>
                 </div>
               </div>
             </>
@@ -327,10 +292,10 @@ function Header({ setSidebarOpen, currentUser, onLogout }: { setSidebarOpen: (v:
         <button
           onClick={() => setDarkMode(!darkMode)}
           aria-label={darkMode ? '切换到日间模式' : '切换到夜间模式'}
-          className="p-1.5 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+          className="rounded-full p-2 text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--accent))] hover:text-foreground"
           title={darkMode ? '切换到日间模式' : '切换到夜间模式'}
         >
-          {darkMode ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-500" />}
+          {darkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
         </button>
 
         {/* User avatar */}
@@ -338,34 +303,29 @@ function Header({ setSidebarOpen, currentUser, onLogout }: { setSidebarOpen: (v:
           <button
             onClick={() => { setUserOpen(!userOpen); setNotifOpen(false) }}
             aria-label="打开用户菜单"
-            className="flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="flex h-9 items-center gap-2 rounded-full border bg-card px-2 pr-3 text-[12px] font-medium text-foreground transition-colors hover:bg-[hsl(var(--accent))]"
           >
-            <span className="flex h-5 w-5 items-center justify-center rounded bg-blue-600 text-[10px] text-white">{avatarText}</span>
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[10px] text-white">{avatarText}</span>
             <span className="hidden sm:inline">{displayName}</span>
-            <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+            <ChevronDown className="h-3.5 w-3.5 text-[hsl(var(--muted-foreground))]" />
           </button>
           {userOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setUserOpen(false)} />
-              <div className={['absolute right-0 top-10 z-50 w-52 overflow-hidden rounded-lg border shadow-xl',
-                darkMode
-                  ? 'bg-slate-800 border-slate-700'
-                  : 'bg-white border-slate-200'
-              ].join(' ')}>
-                <div className={['px-4 py-3 border-b',
-                  darkMode ? 'border-slate-700/50' : 'border-slate-200'].join(' ')}>
-                  <p className="text-sm font-medium text-slate-900 dark:text-white">{displayName}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{displayEmail}</p>
+              <div className="absolute right-0 top-12 z-50 w-52 overflow-hidden rounded-2xl border bg-popover shadow-xl">
+                <div className="border-b px-4 py-3">
+                  <p className="text-[13px] font-medium text-foreground">{displayName}</p>
+                  <p className="mt-0.5 text-[11px] text-[hsl(var(--muted-foreground))]">{displayEmail}</p>
                 </div>
                 <div className="py-1">
-                  <Link to="/settings" onClick={() => setUserOpen(false)} className="flex items-center gap-2.5 px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-white transition-colors">
-                    <User className="w-3.5 h-3.5" /> 个人设置
+                  <Link to="/settings" onClick={() => setUserOpen(false)} className="flex items-center gap-2.5 px-4 py-2 text-[13px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--accent))] hover:text-foreground">
+                    <User className="h-3.5 w-3.5" /> 个人设置
                   </Link>
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                    className="flex w-full items-center gap-2.5 px-4 py-2 text-[13px] text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--accent))] hover:text-red-500"
                   >
-                    <LogOut className="w-3.5 h-3.5" /> 退出登录
+                    <LogOut className="h-3.5 w-3.5" /> 退出登录
                   </button>
                 </div>
               </div>
@@ -420,8 +380,11 @@ export default function App() {
 
   if (authState === 'checking') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#07172b] text-slate-400">
-        正在校验登录状态…
+      <div className="flex min-h-screen items-center justify-center bg-background text-[hsl(var(--muted-foreground))]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[hsl(var(--border))] border-t-primary" />
+          <span className="text-[13px]">正在校验登录状态…</span>
+        </div>
       </div>
     )
   }
@@ -431,13 +394,13 @@ export default function App() {
   }
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'dark bg-slate-950' : 'bg-slate-50'}`}>
+    <div className="min-h-screen bg-background">
       <ThemeContext.Provider value={{ darkMode, setDarkMode }}>
         <Toaster position="top-center" toastOptions={{ duration: 2400 }} />
         <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} />
         <div className="lg:ml-[248px]">
           <Header setSidebarOpen={setSidebarOpen} currentUser={currentUser} onLogout={async () => { await doLogout(); setCurrentUser(null); setAuthState('out') }} />
-          <main className="p-4 sm:p-5">
+          <main className="mx-auto max-w-[1600px] p-4 sm:p-6 lg:p-8">
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<Dashboard />} />

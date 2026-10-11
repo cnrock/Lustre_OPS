@@ -57,7 +57,7 @@ spec:
         - operator: Exists
       containers:
         - name: api
-          image: cnrock/lustre-ops:1.8.0
+          image: cnrock/lustre-ops:1.9.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3006

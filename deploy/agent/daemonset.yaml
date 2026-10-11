@@ -3,8 +3,9 @@
 # 在每个 Lustre 节点跑一个 Pod，通过 nsenter 进入宿主机命名空间执行
 # lfs/lctl/lsmod/journalctl，采集真实数据并推送到后端。
 #
+# 镜像：cnrock/lustre-ops-agent（Docker Hub 官方发布，标签随版本更新）
+#
 # 部署前修改：
-#   - image: 你的镜像仓库地址
 #   - LUSTRE_OPS_URL: 后端 Service 地址
 #   - LUSTRE_OPS_INGEST_TOKEN: 与后端一致（建议改用 Secret）
 #   - nodeSelector / tolerations: 命中你的 Lustre 节点（含被 cordon / GPU 污点节点）
@@ -42,7 +43,7 @@ spec:
         - operator: Exists
       containers:
         - name: agent
-          image: REPLACE_WITH_REGISTRY/lustre-ops-agent:latest
+          image: cnrock/lustre-ops-agent:1.8.0
           imagePullPolicy: IfNotPresent
           env:
             - name: LUSTRE_OPS_URL

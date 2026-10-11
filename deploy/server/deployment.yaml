@@ -3,10 +3,12 @@
 # 单容器同时提供前端页面与 /api。部署在一个能访问 Lustre 的节点上，
 # 通过 hostPID + privileged + nsenter 让后端节点也能自采集本机 Lustre 数据。
 #
+# 镜像：cnrock/lustre-ops（Docker Hub 官方发布，标签随版本更新）
+#
 # 部署前修改：
-#   - image: 你的镜像仓库地址
 #   - LUSTRE_CLIENT_MOUNT: 客户端挂载点（本环境为 /lustre）
 #   - Secret: LUSTRE_INGEST_TOKEN / LUSTRE_ADMIN_PASS
+#   - nodeSelector: 目标节点名
 apiVersion: v1
 kind: Secret
 metadata:
@@ -55,7 +57,7 @@ spec:
         - operator: Exists
       containers:
         - name: api
-          image: REPLACE_WITH_REGISTRY/lustre-ops:latest
+          image: cnrock/lustre-ops:1.8.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3006

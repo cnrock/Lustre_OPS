@@ -103,6 +103,14 @@ Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监�
 | 报表管理 | `/reports` | 报告汇总和导出 |
 | 设置 | `/settings` | 展示偏好、通知和系统配置入口 |
 
+## 界面预览
+
+![总览 · 集群态势](docs/screenshots/v1.8-dashboard.png)
+
+![告警管理](docs/screenshots/v1.8-alerts.png)
+
+![容量管理](docs/screenshots/v1.8-capacity.png)
+
 ## 技术架构
 
 ```text

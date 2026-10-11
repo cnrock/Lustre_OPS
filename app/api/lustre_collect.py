@@ -62,44 +62,76 @@ def _nids():
 
 
 def _parse_lctl_version(text):
-    """解析 `lctl get_param -n version` 的多行输出为 dict。
+    """解析 lctl 版本输出为 dict（兼容两种格式）。
 
-    典型（DDN）输出：
-        lustre: 2.14.0_ddn262
-        kernel: patchless_client
-        build:  v2_14_0_ddn262-g...
+    - `lctl --version`（单行）：
+          lctl 2.14.0_ddn254
+    - `lctl get_param -n version`（多行）：
+          lustre: 2.14.0_ddn262
+          kernel: patchless_client
+          build:  v2_14_0_ddn262-g...
     """
     info = {}
     for line in (text or '').splitlines():
+        line = line.strip()
+        if not line:
+            continue
         if ':' in line:
             k, v = line.split(':', 1)
             k, v = k.strip().lower(), v.strip()
             if k and v and k not in info:
                 info[k] = v
+        else:
+            # "lctl 2.14.0_ddn254" 形式（lctl --version）
+            m = re.match(r'^lctl\s+(\S+)', line)
+            if m and 'lctl' not in info:
+                info['lctl'] = m.group(1)
     return info
 
 
+# 本机 Lustre 版本读取：优先 `lctl --version`（返回本机模块版本），
+# 再回退 `lctl get_param -n version` / sysfs。
+_LCTL_VER_CMD = (
+    "lctl --version 2>/dev/null || "
+    "lctl get_param -n version 2>/dev/null || "
+    "cat /sys/module/lustre/version 2>/dev/null"
+)
+
+
 def _lustre_version():
-    """客户端 Lustre 版本（真实探测，不再使用硬编码）。"""
-    out, _, _ = run("lctl get_param -n version 2>/dev/null || cat /sys/module/lustre/version 2>/dev/null")
+    """本机 Lustre 版本（真实探测，优先 `lctl --version`）。"""
+    out, _, _ = run(_LCTL_VER_CMD, timeout=15)
     raw = (out or '').strip()
     info = _parse_lctl_version(raw)
-    return info.get('lustre') or info.get('build') or raw
+    return info.get('lctl') or info.get('lustre') or info.get('build') or raw
 
 
 def collect_versions():
-    """采集 Lustre 版本信息。
+    """采集 Lustre 版本信息（一律真实探测，不再使用硬编码）。
 
-    - client: 本机客户端模块版本（`lctl get_param -n version`），客户端部署下始终可得。
-    - server: 服务端（MGS/MDS/OSS）版本。客户端部署环境下通常不可直接读取，
-      由后端用服务端 agent 上报的 lustre_version 回填；此处尽力尝试直接读取。
+    - client: 本机模块版本，**优先 `lctl --version`**（如 `lctl 2.14.0_ddn254`），
+      再以 `lctl get_param -n version` 的多行信息补充。
+      注意：客户端上 `lctl get_param -n version` 可能返回 MGS/服务端版本，
+      故不能单独依赖它来判定客户端版本。
+    - server: 服务端（MGS/MDS/OSS）版本。客户端部署下通常读不到，由后端用
+      服务端 agent 上报值或清单 serverVersion 回填；此处仍尽力尝试直接读取。
     返回 {'client': str, 'clientDetail': dict, 'server': str|None}。
     """
-    raw, _, _ = run("lctl get_param -n version 2>/dev/null || cat /sys/module/lustre/version 2>/dev/null")
-    raw = (raw or '').strip()
-    detail = _parse_lctl_version(raw)
-    client = detail.get('lustre') or detail.get('build') or raw
-    # 少数环境可从客户端读到 MGS 版本参数；读不到则为 None（由后端回填）
+    # 客户端版本：优先 lctl --version
+    ver_out, _, _ = run("lctl --version 2>/dev/null", timeout=10)
+    par_out, _, _ = run(
+        "lctl get_param -n version 2>/dev/null || cat /sys/module/lustre/version 2>/dev/null",
+        timeout=15,
+    )
+    detail = {}
+    for txt in (par_out, ver_out):
+        for k, v in _parse_lctl_version(txt).items():
+            detail.setdefault(k, v)
+    client = _parse_lctl_version(ver_out).get('lctl') or detail.get('lustre') or detail.get('build') or ''
+    if not client:
+        raw = (ver_out or par_out or '').strip()
+        client = raw.splitlines()[0].strip() if raw else ''
+    # 服务端版本：客户端上多为空（由后端回填）
     srv_out, _, _ = run("lctl get_param -n mgs.MGS.*.version 2>/dev/null", timeout=8)
     server = (srv_out or '').strip().splitlines()[0].strip() if (srv_out or '').strip() else None
     return {'client': client, 'clientDetail': detail, 'server': server}

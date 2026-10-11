@@ -2,7 +2,7 @@
 
 Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监控与诊断控制台。项目将文件系统状态、性能与容量指标、LNet 网络、告警、集群巡检、日志分析和知识库集中在一个 Web 工作台中，降低日常巡检和故障定位的操作成本。
 
-> 当前版本：`v1.5.0`。依据 DDN LustreFS 操作手册新增服务端深度探针：采集 MDT/OST Recovery 状态、`check_servers.pl`、IB HCA、DDN 磁盘数与 LDLM 锁，并配套告警规则与处理指引。生产环境部署前请先阅读[安全说明](SECURITY.md)和[部署指南](docs/deployment.md)。
+> 当前版本：`v1.6.0`。修复客户端挂载点误判：后端自动探测真实 Lustre 挂载点（不再因默认值 `/lustre/client` 与实际 `/lustre` 不一致而误判「未挂载」），挂载状态下容量、OST 与性能数据恢复正常。生产环境部署前请先阅读[安全说明](SECURITY.md)和[部署指南](docs/deployment.md)。
 
 ![Lustre OPS 云控制台总览](app/product-audit/cloud-console-dashboard-final.png)
 
@@ -63,6 +63,11 @@ Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监�
 - 依据 DDN LustreFS 操作手册采集服务端指标：MDT/OST Recovery 状态、`check_servers.pl`、`get_ost.pl`、IB HCA（`ibstat`）、DDN 磁盘数（`lsscsi`）与 LDLM 锁数量。
 - 配套告警规则（含处理指引）：Recovery 未完成、Target DOWN、IB 端口未 LinkUp、DDN 磁盘数不足。
 - 前端「服务端探针」页集中展示每台 MDS/OSS 的探针结果。
+
+### 挂载点自动探测
+
+- 自动识别真实 Lustre 客户端挂载点（`findmnt -t lustre`），配置的挂载点未挂载时回退探测，避免误判「未挂载」。
+- 状态接口 / 巡检 / 容量接口统一使用探测后的挂载点。
 
 ### AI 日志分析与知识库
 
@@ -164,7 +169,8 @@ python -m unittest api.test_knowledge_overview api.test_ai_response_policy -v
 
 ## 当前边界
 
-- `v1.5.0` 服务端深度探针依据 DDN LustreFS 操作手册实现，依赖节点上存在 `check_servers.pl` / `get_ost.pl` / `rg_control` / `ibstat` / `lsscsi` 等命令；缺失时对应项自动标记为不可用。
+- `v1.6.0` 自动探测 Lustre 客户端挂载点；`LUSTRE_CLIENT_MOUNT` 仍作为首选，未挂载时回退 `findmnt -t lustre` 探测结果。
+- 服务端深度探针依赖节点上存在 `check_servers.pl` / `get_ost.pl` / `rg_control` / `ibstat` / `lsscsi` 等命令；缺失时对应项自动标记为不可用。
 - Agent 控制面（注册、任务下发、断点续传）仍为简化实现。
 - 已提供基础登录鉴权与会话令牌；细粒度 RBAC 与审计持久化仍在路线图中。
 - 告警已支持规则引擎、自动闭环与飞书 Webhook；邮件、企业微信等更多通知渠道在路线图中。
@@ -189,6 +195,7 @@ python -m unittest api.test_knowledge_overview api.test_ai_response_policy -v
 - v1.3.0：容器化部署——DaemonSet 全节点采集、前后端一体化镜像、完整 K8s 清单。
 - v1.4.0：集群清单对账——应采/实采比对、心跳超时与应报未报告警。
 - v1.5.0：服务端深度探针——Recovery / check_servers.pl / IB HCA / DDN 磁盘数 / LDLM，含告警与处理指引。
+- v1.6.0：修复客户端挂载点误判——自动探测真实 Lustre 挂载点，恢复容量/OST/性能数据。
 
 ## 许可证
 

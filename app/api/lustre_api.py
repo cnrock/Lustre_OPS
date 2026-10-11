@@ -138,6 +138,28 @@ DB_PATH = os.environ.get('LUSTRE_DB', '/opt/lustre-data/lustre.db')
 # 客户端挂载点可通过环境变量 LUSTRE_CLIENT_MOUNT 配置（默认 /lustre/client）。
 # 部署时按实际挂载点设置，例如本环境为 /lustre。
 LUSTRE_CLIENT = os.environ.get('LUSTRE_CLIENT_MOUNT', '/lustre/client')
+
+
+def detect_lustre_mount(preferred=None):
+    """返回生效的 Lustre 客户端挂载点。
+
+    优先使用配置的挂载点（LUSTRE_CLIENT_MOUNT）；若其未挂载，
+    则用 `findmnt -t lustre` 自动探测真实挂载点，避免因默认值
+    `/lustre/client` 与实际 `/lustre` 不一致而误判“未挂载”。
+    """
+    preferred = preferred or LUSTRE_CLIENT
+    if os.path.ismount(preferred):
+        return preferred
+    out, _, rc = run_cmd("findmnt -t lustre -n -o TARGET 2>/dev/null | head -1", timeout=8)
+    if rc == 0 and out.strip():
+        return out.strip().splitlines()[0].strip()
+    return preferred
+
+
+def lustre_mounted(preferred=None):
+    """客户端是否已挂载（以自动探测后的挂载点判定）。"""
+    mp = detect_lustre_mount(preferred)
+    return bool(mp) and os.path.ismount(mp)
 AI_SETTINGS_PATH = '/opt/lustre-data/ai_model_settings.json'
 LOG_STATE_PATH = '/opt/lustre-data/log_analysis_state.json'
 
@@ -1774,23 +1796,24 @@ def build_health_check_payload(run_live=True, event_logger=None):
         server_text = probe_results['servers']['output']
         server_rc = probe_results['servers']['exit_code']
 
+        active_mount = detect_lustre_mount()
         probe_results['mount'] = run_health_probe(
             event_logger,
             'cluster',
-            f'客户端挂载点检查 {LUSTRE_CLIENT}',
-            f'mountpoint {LUSTRE_CLIENT} && findmnt {LUSTRE_CLIENT}',
+            f'客户端挂载点检查 {active_mount}',
+            f'mountpoint {active_mount} && findmnt {active_mount}',
             timeout=10,
             require_output=True,
             error_on_rc=True,
         )
-        mounted = os.path.ismount(LUSTRE_CLIENT) and probe_results['mount']['exit_code'] == 0
+        mounted = lustre_mounted() and probe_results['mount']['exit_code'] == 0
         healthy = server_rc == 0 and mounted
 
         probe_results['client_df'] = run_health_probe(
             event_logger,
             'cluster',
             '客户端文件系统可访问性检查',
-            f'lfs df -h {LUSTRE_CLIENT} 2>&1',
+            f'lfs df -h {active_mount} 2>&1',
             timeout=15,
             require_output=True,
             error_on_rc=True,
@@ -1854,7 +1877,7 @@ def build_health_check_payload(run_live=True, event_logger=None):
         else:
             emit_health_event(event_logger, 'running', '无历史巡检记录，执行实时 Lustre 服务检查', phase='cluster', command='lfs check servers')
             server_text, _, server_rc = run_cmd('lfs check servers', timeout=20)
-            mounted = os.path.ismount(LUSTRE_CLIENT)
+            mounted = lustre_mounted()
             healthy = server_rc == 0 and mounted
         emit_health_event(event_logger, 'running', '读取 LNet NID: lctl list_nids', phase='network', command='lctl list_nids 2>/dev/null || true')
         nids_output, _, _ = run_cmd('lctl list_nids 2>/dev/null || true', timeout=10)
@@ -2884,11 +2907,12 @@ def knowledge_chunk_feedback(chunk_id):
 def lustre_status():
     stdout, stderr, rc = run_cmd('lfs check servers')
     is_healthy = rc == 0
+    mount = detect_lustre_mount()
     return jsonify({
         'healthy': is_healthy,
         'servers_output': stdout if stdout else stderr,
-        'client_mount': LUSTRE_CLIENT,
-        'mounted': os.path.ismount(LUSTRE_CLIENT)
+        'client_mount': mount,
+        'mounted': os.path.ismount(mount)
     })
 
 

@@ -14,8 +14,8 @@
 镜像已发布到 Docker Hub，**无需自行构建**：
 
 ```
-cnrock/lustre-ops:1.9.0          # 后端一体化（API + 前端 + 自采集）
-cnrock/lustre-ops-agent:1.9.0    # 节点采集 Agent（DaemonSet）
+cnrock/lustre-ops:1.9.1          # 后端一体化（API + 前端 + 自采集）
+cnrock/lustre-ops-agent:1.9.1    # 节点采集 Agent（DaemonSet）
 ```
 
 ```bash
@@ -139,13 +139,13 @@ cd Lustre_OPS
 cd app && npm ci && npm run build && cd ..      # 产出 app/dist
 
 # 2) 后端一体化镜像
-docker build -t <your-registry>/lustre-ops:1.9.0 -f deploy/server/Dockerfile .
+docker build -t <your-registry>/lustre-ops:1.9.1 -f deploy/server/Dockerfile .
 
 # 3) agent 镜像
-docker build -t <your-registry>/lustre-ops-agent:1.9.0 -f deploy/agent/Dockerfile app/api
+docker build -t <your-registry>/lustre-ops-agent:1.9.1 -f deploy/agent/Dockerfile app/api
 
-docker push <your-registry>/lustre-ops:1.9.0
-docker push <your-registry>/lustre-ops-agent:1.9.0
+docker push <your-registry>/lustre-ops:1.9.1
+docker push <your-registry>/lustre-ops-agent:1.9.1
 ```
 
 > 集群用 containerd 时：`docker save <img> | ctr -n k8s.io images import -`

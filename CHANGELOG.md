@@ -2,6 +2,17 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## v1.9.1 - 2026-10-14
+
+### 变更
+
+- **基础镜像升级**：server / agent 镜像基础镜像由 `python:3.11-slim` 升级到 `python:3.12-slim`。
+- **内置 curl**：两个镜像均内置 `curl`，便于容器内健康检查、探针与现场排障。
+- 部署清单镜像 tag 更新到 `1.9.1`（`cnrock/lustre-ops:1.9.1` / `cnrock/lustre-ops-agent:1.9.1`），并发布多架构（amd64 + arm64）manifest。
+- 功能与 v1.9.0 一致，无接口/数据变更。
+
+详见 `docs/releases/v1.9.1.md`。
+
 ## v1.9.0 - 2026-10-11
 
 ### 新增

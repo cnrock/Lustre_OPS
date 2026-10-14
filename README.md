@@ -2,7 +2,7 @@
 
 Lustre OPS 是面向 Lustre 并行文件系统运维团队的中文图形化监控与诊断控制台。项目将文件系统状态、性能与容量指标、LNet 网络、告警、集群巡检、日志分析和知识库集中在一个 Web 工作台中，降低日常巡检和故障定位的操作成本。
 
-> 当前版本：`v1.9.0`。客户端部署适配 + 真实版本探测 + 简化部署。支持仅客户端部署（服务端经客户端间接监控，消除误报），Lustre 客户端/服务端版本改为真实探测与展示，部署文档重写并给出他人复现步骤。生产环境部署前请先阅读[安全说明](SECURITY.md)和[部署指南](docs/deployment.md)。
+> 当前版本：`v1.9.1`。镜像基础镜像升级到 Python 3.12，容器内置 curl 便于健康检查与排障。客户端部署适配 + 真实版本探测 + 简化部署。支持仅客户端部署（服务端经客户端间接监控，消除误报），Lustre 客户端/服务端版本改为真实探测与展示，部署文档重写并给出他人复现步骤。生产环境部署前请先阅读[安全说明](SECURITY.md)和[部署指南](docs/deployment.md)。
 
 ![Lustre OPS 云控制台总览](app/product-audit/cloud-console-dashboard-final.png)
 
@@ -226,6 +226,7 @@ python -m unittest api.test_knowledge_overview api.test_ai_response_policy -v
 
 ## 版本历史
 
+- v1.9.1：镜像基础镜像升级到 Python 3.12（`python:3.12-slim`）；server/agent 镜像内置 `curl`，便于容器健康检查与现场排障。功能与 v1.9.0 一致。
 - v1.9.0：客户端部署适配（serverMode=client-only，消除服务端误报）、真实版本探测（服务端/客户端版本）、官方镜像与简化部署文档。
 - v1.8.0：全模块界面统一到 Apple 风格；版本号单一来源与界面展示；README 版本历史倒序。
 - v1.7.0：界面改版（Apple 风格）——重构设计系统与导航/登录/总览观感。

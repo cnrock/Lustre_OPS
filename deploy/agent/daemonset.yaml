@@ -43,7 +43,7 @@ spec:
         - operator: Exists
       containers:
         - name: agent
-          image: cnrock/lustre-ops-agent:1.9.0
+          image: cnrock/lustre-ops-agent:1.9.1
           imagePullPolicy: IfNotPresent
           env:
             - name: LUSTRE_OPS_URL

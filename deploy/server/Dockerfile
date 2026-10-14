@@ -1,9 +1,9 @@
 # Lustre OPS 一体化镜像：Flask API + 前端静态资源，单容器同时提供 /api 与 /。
 # 后端节点自采集需要读宿主机 Lustre：容器以 hostPID/privileged 运行并使用 nsenter。
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        util-linux procps iproute2 iputils-ping \
+        util-linux procps iproute2 iputils-ping curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/api
